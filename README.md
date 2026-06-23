@@ -123,6 +123,30 @@ async with BrowserPool(
 `pool.acquire()` is the lower-level checkout API if you need it. `pool.size /
 .created / .idle / .busy / .browsers` for introspection.
 
+## Local web panel (M5.7)
+
+A built-in dashboard for inspecting and controlling a `BrowserPool`. Install
+with the `panel` extra (pulls in `aiohttp`):
+
+```bash
+pip install funbrowser[panel]
+```
+
+```python
+from funbrowser import BrowserPool, Panel
+
+async with BrowserPool(size=3) as pool:
+    async with Panel(pool) as panel:
+        print(panel.url)   # http://127.0.0.1:8765
+        await long_running_task()
+```
+
+The dashboard shows pool size / busy / idle, lists every browser with its
+proxy and geo and fingerprint, displays current tab URLs, lets you navigate
+any browser to a URL or grab a screenshot. Auto-refreshes every 1.5s. The
+panel is opt-in — if you don't `pip install funbrowser[panel]`, importing
+`Panel` is a no-op and your code stays dependency-light.
+
 ## Custom fingerprint (M2.5)
 
 Pick a preset or build your own — the SDK plumbs the values into UA + Client

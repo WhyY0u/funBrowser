@@ -20,6 +20,12 @@ from .fingerprint import Fingerprint, presets
 from .geo import GeoInfo, lookup_proxy_geo
 from .humanly import HumanBehavior
 from .pool import BrowserPool
+
+# Panel is optional — only available when aiohttp is installed.
+try:
+    from .panel import Panel
+except ImportError:
+    Panel = None  # type: ignore[assignment, misc]
 from .profile import Profile
 from .proxy import Proxy, ProxyParseError
 from .proxy import parse as parse_proxy
@@ -44,6 +50,7 @@ __all__ = [
     "FunSolverError",
     "GeoInfo",
     "HumanBehavior",
+    "Panel",
     "Profile",
     "Proxy",
     "ProxyParseError",
