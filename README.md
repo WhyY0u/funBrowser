@@ -127,7 +127,7 @@ See `CHANGELOG.md` for what's landed.
 | M2 | Stealth Tier 1 + 2 | done | basic markers + real GPU + canvas/audio noise |
 | M3 | Solver bridge + Turnstile | done | |
 | M4 | reCAPTCHA / hCaptcha / FunCaptcha / GeeTest | pending | |
-| M5 | Production hardening | in progress | proxies + profiles done; retries + multi-tab next |
+| M5 | Production hardening | done | proxies, profiles, real input events, retries, multi-tab |
 | M6 | **v0.1 release** | pending | PyPI, docs |
 | M7 | Fingerprint consistency (Tier 3) | post-v0.1 | Client Hints + tz + screen + fonts coherent across layers |
 | M8 | Real fingerprint pool (Tier 4) | post-v0.1 | bundled DB of real-user fingerprints, per-profile rotation |
