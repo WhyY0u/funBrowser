@@ -36,6 +36,9 @@ Thumbs.db
 # Profiles created by browser launches during local development
 profiles/
 *.profile/
+# Example artifacts
+example.png
+examples/*.png
 # Secrets: never commit API keys
 .env
 .env.local

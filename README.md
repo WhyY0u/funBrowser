@@ -11,18 +11,28 @@ Undetect browser with built-in captcha solving via [funsolver.com](https://funso
 - Python async SDK familiar to nodriver users
 - Raw CDP over WebSocket — no Selenium, no Playwright (both leak)
 
-## Quick taste (target API, not yet shipped)
+## Today (M1 shipped)
 
 ```python
+import asyncio
 import funbrowser
 
-browser = await funbrowser.start(
-    api_key="fs_xxx",
-    auto_solve=True,
-)
+async def main():
+    async with await funbrowser.start(headless=True) as browser:
+        tab = await browser.get("https://example.com")
+        print(await tab.evaluate("document.title"))  # Example Domain
+        (await tab.screenshot()) and None
+
+asyncio.run(main())
+```
+
+## Where we're going (after M3)
+
+```python
+browser = await funbrowser.start(api_key="fs_xxx", auto_solve=True)
 tab = await browser.get("https://protected-site.com")
 # captchas auto-solve in the background
-await tab.find("button:has-text('Submit')").click()
+await tab.click("button[type=submit]")
 ```
 
 ## Roadmap to v0.1
@@ -31,8 +41,8 @@ See `CHANGELOG.md` for what's landed.
 
 | | Milestone | Status |
 |---|---|---|
-| M0 | Bootstrap | in progress |
-| M1 | CDP core + Tab API | pending |
+| M0 | Bootstrap | done |
+| M1 | CDP core + Tab API | done |
 | M2 | Stealth runtime patches | pending |
 | M3 | Solver bridge + Turnstile | pending |
 | M4 | reCAPTCHA, hCaptcha, FunCaptcha, GeeTest | pending |

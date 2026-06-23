@@ -1,0 +1,94 @@
+"""Browser — the launched Chrome process plus the CDP control plane."""
+
+from __future__ import annotations
+
+import asyncio
+import shutil
+from collections.abc import Sequence
+from pathlib import Path
+from types import TracebackType
+from typing import Self
+
+from ._cdp import CDPConnection
+from ._launcher import LaunchedBrowser, launch_chrome
+from .tab import Tab
+
+
+class Browser:
+    def __init__(self, launched: LaunchedBrowser, cdp: CDPConnection) -> None:
+        self._launched = launched
+        self._cdp = cdp
+        self._tabs: dict[str, Tab] = {}
+
+    @classmethod
+    async def start(
+        cls,
+        *,
+        executable: str | Path | None = None,
+        user_data_dir: str | Path | None = None,
+        headless: bool = False,
+        args: Sequence[str] = (),
+    ) -> Self:
+        launched = await launch_chrome(
+            executable=Path(executable) if executable else None,
+            user_data_dir=Path(user_data_dir) if user_data_dir else None,
+            headless=headless,
+            extra_args=args,
+        )
+        cdp = CDPConnection(launched.ws_url)
+        await cdp.connect()
+        return cls(launched, cdp)
+
+    @property
+    def tabs(self) -> list[Tab]:
+        return list(self._tabs.values())
+
+    async def new_tab(self, url: str = "about:blank") -> Tab:
+        res = await self._cdp.send("Target.createTarget", {"url": url})
+        target_id = res["targetId"]
+        attach = await self._cdp.send(
+            "Target.attachToTarget",
+            {"targetId": target_id, "flatten": True},
+        )
+        session_id = attach["sessionId"]
+        tab = Tab(self, target_id, session_id)
+        await tab._initialize()
+        self._tabs[target_id] = tab
+        return tab
+
+    async def get(self, url: str, *, wait_until: str = "load") -> Tab:
+        tab = await self.new_tab(url="about:blank")
+        await tab.goto(url, wait_until=wait_until)
+        return tab
+
+    def _on_tab_closed(self, tab: Tab) -> None:
+        self._tabs.pop(tab.target_id, None)
+
+    async def stop(self) -> None:
+        for tab in list(self._tabs.values()):
+            try:
+                await tab.close()
+            except Exception:
+                pass
+        await self._cdp.close()
+        proc = self._launched.process
+        if proc.returncode is None:
+            try:
+                proc.terminate()
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
+        if self._launched.user_data_dir_is_tmp:
+            shutil.rmtree(self._launched.user_data_dir, ignore_errors=True)
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        await self.stop()

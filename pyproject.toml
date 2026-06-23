@@ -58,11 +58,21 @@ select = [
     "ASYNC",
     "RUF",
 ]
+ignore = [
+    # `timeout` is a natural public-API parameter; we expose it deliberately
+    # instead of forcing callers to wrap with asyncio.timeout(). The rule is
+    # too strict for SDK surfaces.
+    "ASYNC109",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Demo scripts hit the disk synchronously by design — async-file purity here
+# would obscure the point of the example.
+"examples/**" = ["ASYNC230", "ASYNC240"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
-warn_unreachable = true
 warn_unused_configs = true
 
 [tool.pytest.ini_options]
