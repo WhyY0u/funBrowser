@@ -46,6 +46,7 @@ packages = ["funbrowser"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "funbrowser/stealth/scripts" = "funbrowser/stealth/scripts"
+"funbrowser/solver/scripts" = "funbrowser/solver/scripts"
 
 [tool.ruff]
 target-version = "py311"

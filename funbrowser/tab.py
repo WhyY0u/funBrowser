@@ -47,14 +47,20 @@ class Tab:
 
     async def _initialize(self) -> None:
         # Page.enable is needed to receive Page.loadEventFired.
-        # Runtime.enable is intentionally NOT called — it is a known antibot
-        # leak (Runtime.consoleAPICalled / Error.stack trick); Runtime.evaluate
-        # works fine without it.
+        # Runtime.enable is intentionally NOT called here — the solver bridge
+        # below calls it only if the user opted into auto-solving, since
+        # enabling Runtime is a known minor antibot tell.
         await self._send("Page.enable")
         if self._browser.stealth_enabled:
             from .stealth import apply_stealth
 
             await apply_stealth(self)
+        if self._browser.auto_solve_enabled:
+            from .solver import apply_solver
+
+            client = self._browser.solver_client
+            assert client is not None  # auto_solve_enabled implies client present
+            await apply_solver(self, client)
 
     async def goto(
         self,

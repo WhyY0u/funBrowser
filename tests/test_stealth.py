@@ -69,8 +69,7 @@ async def test_permissions_query_matches_notification() -> None:
         # patch maps that to 'prompt' through permissions.query. Either way,
         # the two queries should not disagree in the headless-style way.
         result = await tab.evaluate(
-            "navigator.permissions.query({name:'notifications'})"
-            ".then(p => p.state)"
+            "navigator.permissions.query({name:'notifications'}).then(p => p.state)"
         )
         assert result in ("prompt", "denied", "granted", "default")
 

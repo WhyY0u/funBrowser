@@ -36,13 +36,15 @@ uv run python examples/stealth_check.py
 uv run python examples/stealth_check.py https://bot.sannysoft.com/
 ```
 
-## Where we're going (after M3)
+## Auto-solve captchas (M3 — Cloudflare Turnstile today, the rest in M4)
 
 ```python
-browser = await funbrowser.start(api_key="fs_xxx", auto_solve=True)
-tab = await browser.get("https://protected-site.com")
-# captchas auto-solve in the background
-await tab.click("button[type=submit]")
+async with await funbrowser.start(api_key="fs_xxx") as browser:
+    tab = await browser.get("https://site-with-turnstile.com")
+    # detector spots the .cf-turnstile widget, sends sitekey + URL to
+    # funsolver.com, drops the token into the response field and fires
+    # the page's success callback — all without your code doing anything.
+    await tab.click("button[type=submit]")
 ```
 
 ## Roadmap
@@ -54,7 +56,7 @@ See `CHANGELOG.md` for what's landed.
 | M0 | Bootstrap | done | |
 | M1 | CDP core + Tab API | done | raw CDP, no Selenium/Playwright |
 | M2 | Stealth Tier 1 + 2 | done | basic markers + real GPU + canvas/audio noise |
-| M3 | Solver bridge + Turnstile | pending | |
+| M3 | Solver bridge + Turnstile | done | |
 | M4 | reCAPTCHA / hCaptcha / FunCaptcha / GeeTest | pending | |
 | M5 | Production hardening | pending | profiles, proxies, retries, multi-tab |
 | M6 | **v0.1 release** | pending | PyPI, docs |

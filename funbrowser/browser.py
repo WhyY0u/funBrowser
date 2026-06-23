@@ -11,6 +11,7 @@ from typing import Self
 
 from ._cdp import CDPConnection
 from ._launcher import LaunchedBrowser, launch_chrome
+from .solver import FunSolverClient
 from .stealth import stealth_flags
 from .tab import Tab
 
@@ -22,15 +23,25 @@ class Browser:
         cdp: CDPConnection,
         *,
         stealth: bool = True,
+        solver_client: FunSolverClient | None = None,
     ) -> None:
         self._launched = launched
         self._cdp = cdp
         self._stealth = stealth
+        self._solver_client = solver_client
         self._tabs: dict[str, Tab] = {}
 
     @property
     def stealth_enabled(self) -> bool:
         return self._stealth
+
+    @property
+    def auto_solve_enabled(self) -> bool:
+        return self._solver_client is not None
+
+    @property
+    def solver_client(self) -> FunSolverClient | None:
+        return self._solver_client
 
     @classmethod
     async def start(
@@ -40,6 +51,9 @@ class Browser:
         user_data_dir: str | Path | None = None,
         headless: bool = False,
         stealth: bool = True,
+        api_key: str | None = None,
+        auto_solve: bool = True,
+        solver_base_url: str | None = None,
         args: Sequence[str] = (),
     ) -> Self:
         extra: list[str] = list(args)
@@ -53,7 +67,15 @@ class Browser:
         )
         cdp = CDPConnection(launched.ws_url)
         await cdp.connect()
-        return cls(launched, cdp, stealth=stealth)
+
+        solver_client: FunSolverClient | None = None
+        if api_key and auto_solve:
+            if solver_base_url:
+                solver_client = FunSolverClient(api_key, base_url=solver_base_url)
+            else:
+                solver_client = FunSolverClient(api_key)
+
+        return cls(launched, cdp, stealth=stealth, solver_client=solver_client)
 
     @property
     def tabs(self) -> list[Tab]:
@@ -87,6 +109,11 @@ class Browser:
             except Exception:
                 pass
         await self._cdp.close()
+        if self._solver_client is not None:
+            try:
+                await self._solver_client.close()
+            except Exception:
+                pass
         proc = self._launched.process
         if proc.returncode is None:
             try:
