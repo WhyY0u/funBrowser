@@ -6,9 +6,9 @@ Undetect browser with built-in captcha solving via [funsolver.com](https://funso
 
 ## Goals
 
-- nodriver-grade stealth (and beyond) — runtime CDP patches today, forked browser later
+- Deep stealth — runtime CDP patches today, forked browser later
 - Captchas solve themselves — paste your funsolver.com API key and forget about reCAPTCHA / hCaptcha / Turnstile / FunCaptcha / GeeTest
-- Python async SDK familiar to nodriver users
+- Python async SDK with first-class fingerprint customization (presets or custom)
 - Raw CDP over WebSocket — no Selenium, no Playwright (both leak)
 
 ## Today (M1 + M2 shipped)
@@ -35,6 +35,44 @@ Probe yourself:
 uv run python examples/stealth_check.py
 uv run python examples/stealth_check.py https://bot.sannysoft.com/
 ```
+
+## Custom fingerprint (M2.5)
+
+Pick a preset or build your own — the SDK plumbs the values into UA + Client
+Hints + navigator + screen + WebGL.
+
+```python
+from funbrowser import Fingerprint, presets
+
+# Preset
+fp = presets.windows_11_amd_radeon_6700_xt()
+
+# Preset + custom overrides
+fp = presets.macos_apple_silicon_m3_pro().merge(
+    Fingerprint(timezone="Asia/Tokyo", languages=("ja-JP", "ja", "en"))
+)
+
+# Fully custom
+fp = Fingerprint(
+    user_agent="Mozilla/5.0 ... Chrome/130.0.0.0 ...",
+    hardware_concurrency=16,
+    device_memory=8,
+    webgl_vendor="Google Inc. (NVIDIA)",
+    webgl_renderer="ANGLE (NVIDIA, NVIDIA GeForce RTX 3060, D3D11)",
+)
+
+async with await funbrowser.start(fingerprint=fp) as browser:
+    tab = await browser.get("https://example.com")
+```
+
+Available presets: see `funbrowser.presets.ALL`. Filter with
+`presets.filter_by_tag("windows")` / `("macos")` / `("high-end")` / etc.
+
+Note on WebGL spoofing: overriding `webgl_vendor` + `webgl_renderer` only
+changes the strings `getParameter()` returns. The rendered pixel output
+still comes from the real GPU underneath, so top-tier antibots can still
+catch the mismatch by comparing the claimed renderer to the actual pixels.
+Full shader-level spoofing is M9.
 
 ## Auto-solve captchas (M3 — Cloudflare Turnstile today, the rest in M4)
 

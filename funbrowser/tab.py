@@ -54,7 +54,7 @@ class Tab:
         if self._browser.stealth_enabled:
             from .stealth import apply_stealth
 
-            await apply_stealth(self)
+            await apply_stealth(self, self._browser.fingerprint)
         if self._browser.auto_solve_enabled:
             from .solver import apply_solver
 

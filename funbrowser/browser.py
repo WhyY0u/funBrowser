@@ -11,6 +11,7 @@ from typing import Self
 
 from ._cdp import CDPConnection
 from ._launcher import LaunchedBrowser, launch_chrome
+from .fingerprint import Fingerprint
 from .solver import FunSolverClient
 from .stealth import stealth_flags
 from .tab import Tab
@@ -23,17 +24,23 @@ class Browser:
         cdp: CDPConnection,
         *,
         stealth: bool = True,
+        fingerprint: Fingerprint | None = None,
         solver_client: FunSolverClient | None = None,
     ) -> None:
         self._launched = launched
         self._cdp = cdp
         self._stealth = stealth
+        self._fingerprint = fingerprint
         self._solver_client = solver_client
         self._tabs: dict[str, Tab] = {}
 
     @property
     def stealth_enabled(self) -> bool:
         return self._stealth
+
+    @property
+    def fingerprint(self) -> Fingerprint | None:
+        return self._fingerprint
 
     @property
     def auto_solve_enabled(self) -> bool:
@@ -51,6 +58,7 @@ class Browser:
         user_data_dir: str | Path | None = None,
         headless: bool = False,
         stealth: bool = True,
+        fingerprint: Fingerprint | None = None,
         api_key: str | None = None,
         auto_solve: bool = True,
         solver_base_url: str | None = None,
@@ -75,7 +83,13 @@ class Browser:
             else:
                 solver_client = FunSolverClient(api_key)
 
-        return cls(launched, cdp, stealth=stealth, solver_client=solver_client)
+        return cls(
+            launched,
+            cdp,
+            stealth=stealth,
+            fingerprint=fingerprint,
+            solver_client=solver_client,
+        )
 
     @property
     def tabs(self) -> list[Tab]:

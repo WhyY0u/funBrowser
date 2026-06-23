@@ -14,6 +14,7 @@ from ._errors import (
     TargetClosed,
 )
 from .browser import Browser
+from .fingerprint import Fingerprint, presets
 from .solver import FunSolverClient, FunSolverError
 from .tab import Tab
 
@@ -25,12 +26,14 @@ __all__ = [
     "BrowserNotFoundError",
     "CDPConnectionClosed",
     "CDPError",
+    "Fingerprint",
     "FunBrowserError",
     "FunSolverClient",
     "FunSolverError",
     "Tab",
     "TargetClosed",
     "__version__",
+    "presets",
     "start",
 ]
 
@@ -41,6 +44,7 @@ async def start(
     user_data_dir: str | Path | None = None,
     headless: bool = False,
     stealth: bool = True,
+    fingerprint: Fingerprint | None = None,
     api_key: str | None = None,
     auto_solve: bool = True,
     solver_base_url: str | None = None,
@@ -48,14 +52,20 @@ async def start(
 ) -> Browser:
     """Launch Chrome and return a connected Browser.
 
-    If ``api_key`` is provided and ``auto_solve`` is true, captchas detected
-    on each tab will be sent to funsolver.com and solved automatically.
+    Pass ``fingerprint=`` (a :class:`Fingerprint` or a value from
+    :mod:`funbrowser.presets`) to override the JS-visible identity values
+    (UA, platform, languages, CPU cores, screen, WebGL strings, etc.).
+
+    If ``api_key`` is provided and ``auto_solve`` is true, captchas
+    detected on each tab will be sent to funsolver.com and solved
+    automatically.
     """
     return await Browser.start(
         executable=executable,
         user_data_dir=user_data_dir,
         headless=headless,
         stealth=stealth,
+        fingerprint=fingerprint,
         api_key=api_key,
         auto_solve=auto_solve,
         solver_base_url=solver_base_url,
