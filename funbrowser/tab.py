@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from ._cdp import CDPConnection
 from ._errors import TargetClosed
+from .element import ElementHandle
 
 if TYPE_CHECKING:
     from .browser import Browser
@@ -23,6 +25,8 @@ class Tab:
         self._cdp: CDPConnection = browser._cdp
         self._closed = False
         self._url = "about:blank"
+        self._blocked_patterns: list[str] = []
+        self._block_unsub: Any = None
 
     @property
     def target_id(self) -> str:
@@ -139,58 +143,186 @@ class Tab:
             raise RuntimeError(f"JS exception: {details.get('text', '')}")
         return result.get("result", {}).get("value")
 
-    async def query_selector(self, selector: str) -> bool:
-        """Return True if a matching element exists.
+    # ── element queries ───────────────────────────────────────────────
 
-        Real element-handle objects with click/text/etc land in M2 alongside
-        Input.dispatchMouseEvent.
-        """
-        return bool(await self.evaluate(f"document.querySelector({selector!r}) !== null"))
-
-    async def click(self, selector: str) -> None:
-        """Click via real Input.dispatchMouseEvent at the element's center.
-
-        Generates trusted-looking mouse events rather than a synthetic JS
-        ``.click()``, so pages that gate on real input (some captchas, some
-        antibots) accept it.
-        """
-        box = await self.evaluate(
-            f"(() => {{ const el = document.querySelector({selector!r});"
-            f" if (!el) return null;"
-            f" const r = el.getBoundingClientRect();"
-            f" if (r.width === 0 || r.height === 0) return null;"
-            f" el.scrollIntoView({{block: 'center', inline: 'center'}});"
-            f" const r2 = el.getBoundingClientRect();"
-            f" return {{x: r2.left + r2.width/2, y: r2.top + r2.height/2}}; }})()"
-        )
-        if not box:
-            raise ValueError(f"No visible element matched {selector!r}")
-        x = float(box["x"])
-        y = float(box["y"])
-        await self._send(
-            "Input.dispatchMouseEvent",
-            {"type": "mouseMoved", "x": x, "y": y},
-        )
-        await self._send(
-            "Input.dispatchMouseEvent",
+    async def query(self, selector: str) -> ElementHandle | None:
+        """Return an ElementHandle for the first match, or None. No waiting."""
+        result = await self._send(
+            "Runtime.evaluate",
             {
-                "type": "mousePressed",
-                "x": x,
-                "y": y,
-                "button": "left",
-                "clickCount": 1,
+                "expression": f"document.querySelector({selector!r})",
+                "returnByValue": False,
             },
         )
-        await self._send(
-            "Input.dispatchMouseEvent",
+        if "exceptionDetails" in result:
+            raise RuntimeError(f"JS exception: {result['exceptionDetails'].get('text', '')}")
+        obj = result.get("result", {})
+        if obj.get("subtype") == "null" or "objectId" not in obj:
+            return None
+        return ElementHandle(self, obj["objectId"])
+
+    async def query_all(self, selector: str) -> list[ElementHandle]:
+        """Return ElementHandles for every match (possibly empty)."""
+        result = await self._send(
+            "Runtime.evaluate",
             {
-                "type": "mouseReleased",
-                "x": x,
-                "y": y,
-                "button": "left",
-                "clickCount": 1,
+                "expression": f"Array.from(document.querySelectorAll({selector!r}))",
+                "returnByValue": False,
             },
         )
+        array_id = result.get("result", {}).get("objectId")
+        if not array_id:
+            return []
+        props = await self._cdp.send(
+            "Runtime.getProperties",
+            {"objectId": array_id, "ownProperties": True},
+            session_id=self._session_id,
+        )
+        ids: list[str] = []
+        for prop in props.get("result", []):
+            if not prop.get("enumerable"):
+                continue
+            value = prop.get("value", {})
+            obj_id = value.get("objectId")
+            if obj_id and value.get("subtype") == "node":
+                ids.append(obj_id)
+        return [ElementHandle(self, i) for i in ids]
+
+    async def find(
+        self,
+        selector: str,
+        *,
+        timeout: float = 30.0,
+        poll_interval: float = 0.1,
+    ) -> ElementHandle:
+        """Wait until an element matches and return its ElementHandle.
+
+        Raises TimeoutError after ``timeout`` seconds with nothing matching.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            handle = await self.query(selector)
+            if handle is not None:
+                return handle
+            if loop.time() >= deadline:
+                raise TimeoutError(f"timed out waiting for {selector!r} after {timeout}s")
+            await asyncio.sleep(poll_interval)
+
+    async def wait_for(self, selector: str, *, timeout: float = 30.0) -> ElementHandle:
+        """Alias for :meth:`find`."""
+        return await self.find(selector, timeout=timeout)
+
+    async def exists(self, selector: str) -> bool:
+        """True if a matching element exists right now, no waiting."""
+        return (await self.query(selector)) is not None
+
+    # ── interaction shortcuts (auto-wait) ─────────────────────────────
+
+    async def click(self, selector: str, *, timeout: float = 30.0) -> None:
+        """Wait for, then click via real Input.dispatchMouseEvent."""
+        handle = await self.find(selector, timeout=timeout)
+        await handle.click()
+
+    async def type(
+        self,
+        selector: str,
+        text: str,
+        *,
+        timeout: float = 30.0,
+        delay_ms: float = 0.0,
+    ) -> None:
+        """Wait for, focus, and type ``text`` keystroke-by-keystroke."""
+        handle = await self.find(selector, timeout=timeout)
+        await handle.type(text, delay_ms=delay_ms)
+
+    async def fill(
+        self,
+        selector: str,
+        value: str,
+        *,
+        timeout: float = 30.0,
+    ) -> None:
+        """Wait for, then set ``.value`` and fire input + change events."""
+        handle = await self.find(selector, timeout=timeout)
+        await handle.fill(value)
+
+    async def hover(self, selector: str, *, timeout: float = 30.0) -> None:
+        handle = await self.find(selector, timeout=timeout)
+        await handle.hover()
+
+    # ── read shortcuts ────────────────────────────────────────────────
+
+    async def text(self, selector: str, *, timeout: float = 30.0) -> str:
+        """Wait for and return ``innerText`` of the first match."""
+        handle = await self.find(selector, timeout=timeout)
+        return await handle.text()
+
+    async def attribute(
+        self,
+        selector: str,
+        name: str,
+        *,
+        timeout: float = 30.0,
+    ) -> str | None:
+        handle = await self.find(selector, timeout=timeout)
+        return await handle.attribute(name)
+
+    async def get_value(self, selector: str, *, timeout: float = 30.0) -> str:
+        handle = await self.find(selector, timeout=timeout)
+        return await handle.value()
+
+    # ── network ───────────────────────────────────────────────────────
+
+    async def block_urls(self, patterns: Sequence[str]) -> None:
+        """Block requests whose URL matches any of the given ``*``-glob patterns.
+
+        Example: ``await tab.block_urls(["*google-analytics.com*", "*.png"])``
+        cuts ad/tracking calls and image bandwidth — common 2-5x speedup on
+        ad-heavy pages.
+
+        Implementation note: this re-enables ``Fetch`` with the new pattern
+        set, replacing any prior ``Fetch`` config. If proxy-auth was wired in
+        on this tab, call :meth:`block_urls` first and then proxy-auth will
+        be lost — file an issue if you hit this; composing both is M5.6 work.
+        """
+        if not patterns:
+            await self.unblock_urls()
+            return
+        fetch_patterns = [{"urlPattern": p, "requestStage": "Request"} for p in patterns]
+        await self._send("Fetch.enable", {"patterns": fetch_patterns})
+
+        sub = self._block_unsub
+        if sub is not None:
+            sub()
+        self._blocked_patterns = list(patterns)
+
+        async def _on_paused(params: dict[str, Any]) -> None:
+            try:
+                await self._cdp.send(
+                    "Fetch.failRequest",
+                    {
+                        "requestId": params["requestId"],
+                        "errorReason": "BlockedByClient",
+                    },
+                    session_id=self._session_id,
+                )
+            except Exception:
+                pass
+
+        self._block_unsub = self._cdp.on(
+            "Fetch.requestPaused", _on_paused, session_id=self._session_id
+        )
+
+    async def unblock_urls(self) -> None:
+        if self._block_unsub is not None:
+            self._block_unsub()
+            self._block_unsub = None
+        self._blocked_patterns = []
+        try:
+            await self._send("Fetch.disable")
+        except Exception:
+            pass
 
     async def screenshot(self, *, format: str = "png") -> bytes:
         if format not in ("png", "jpeg"):

@@ -14,6 +14,7 @@ from ._errors import (
     TargetClosed,
 )
 from .browser import Browser
+from .element import ElementHandle
 from .fingerprint import Fingerprint, presets
 from .profile import Profile
 from .proxy import Proxy, ProxyParseError
@@ -29,6 +30,7 @@ __all__ = [
     "BrowserNotFoundError",
     "CDPConnectionClosed",
     "CDPError",
+    "ElementHandle",
     "Fingerprint",
     "FunBrowserError",
     "FunSolverClient",

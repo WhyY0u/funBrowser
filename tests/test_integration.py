@@ -36,5 +36,5 @@ async def test_query_selector_and_click() -> None:
     browser = await funbrowser.start(headless=True)
     async with browser:
         tab = await browser.get("https://example.com")
-        assert await tab.query_selector("h1") is True
-        assert await tab.query_selector("h2") is False
+        assert await tab.exists("h1") is True
+        assert await tab.exists("h2") is False

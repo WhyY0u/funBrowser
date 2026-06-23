@@ -105,6 +105,34 @@ async with await funbrowser.start(user_data_dir=alice) as browser:
 
 `FUNBROWSER_PROFILES` env var changes the root.
 
+## Ergonomics (M5.5)
+
+```python
+async with await funbrowser.start() as browser:
+    tab = await browser.get("https://example.com")
+
+    # Auto-wait built in — no separate wait_for needed
+    await tab.fill("#email", "ada@lovelace.dev")
+    await tab.type("#name", "Ada")           # real keystrokes
+    await tab.click("button[type=submit]")    # event.isTrusted == true
+
+    # Read straight from selectors
+    msg = await tab.text("#result")
+    is_open = await tab.exists(".error-banner")
+
+    # ElementHandle — reuse one reference
+    btn = await tab.find("#delayed-btn", timeout=5)
+    print(await btn.attribute("data-id"))
+    await btn.click()
+
+    # Cut bandwidth / speed up loads
+    await tab.block_urls(["*google-analytics.com*", "*.png"])
+
+    # Cookies are browser-wide
+    await browser.set_cookies([{"name": "session", "value": "abc", "domain": "example.com", "path": "/"}])
+    print(await browser.cookies())
+```
+
 ## Auto-solve captchas (M3 — Cloudflare Turnstile today, the rest in M4)
 
 ```python
@@ -128,6 +156,7 @@ See `CHANGELOG.md` for what's landed.
 | M3 | Solver bridge + Turnstile | done | |
 | M4 | reCAPTCHA / hCaptcha / FunCaptcha / GeeTest | pending | |
 | M5 | Production hardening | done | proxies, profiles, real input events, retries, multi-tab |
+| M5.5 | DX Tier S | done | wait_for + ElementHandle + auto-wait + cookies + block_urls |
 | M6 | **v0.1 release** | pending | PyPI, docs |
 | M7 | Fingerprint consistency (Tier 3) | post-v0.1 | Client Hints + tz + screen + fonts coherent across layers |
 | M8 | Real fingerprint pool (Tier 4) | post-v0.1 | bundled DB of real-user fingerprints, per-profile rotation |
@@ -135,6 +164,9 @@ See `CHANGELOG.md` for what's landed.
 | M10 | TLS JA3/JA4 fingerprint | post-v0.1 | mitm with curl_cffi/utls, or BoringSSL patch in M11 |
 | M11 | Browser fork | post-v0.1 | Camoufox or ungoogled-chromium with C++ stealth patches |
 | M12 | Tauri UI for manual mode | post-v0.1 | desktop app with tabs/address bar/settings |
+| M5.6 | DX Tier A | post-v0.1 | intercept, fetch-from-page, screenshot+, scroll, upload, export_state, mobile preset |
+| M5.7 | DX Tier B | post-v0.1 | pdf, CLI tool, shortcut props, pretty logging, popups, solver shortcuts |
+| M5.8 | DX Tier C | post-v0.1 | HAR export, detection_score, switch_proxy, async-for network listener |
 
 ## Development
 

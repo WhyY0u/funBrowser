@@ -41,10 +41,11 @@ async def test_click_uses_real_input_events() -> None:
 
 
 async def test_click_on_missing_element_raises() -> None:
+    """Click auto-waits up to timeout; missing element times out."""
     async with await funbrowser.start(headless=True) as browser:
         tab = await browser.get("https://example.com")
-        with pytest.raises(ValueError):
-            await tab.click("#does-not-exist")
+        with pytest.raises(TimeoutError):
+            await tab.click("#does-not-exist", timeout=0.5)
 
 
 async def test_goto_retries_on_timeout() -> None:
