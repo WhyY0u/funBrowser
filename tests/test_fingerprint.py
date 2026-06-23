@@ -36,6 +36,35 @@ def test_all_presets_have_required_fields() -> None:
         assert fp.tags
 
 
+def test_catalog_has_at_least_15_presets() -> None:
+    assert len(presets.ALL) >= 15
+
+
+def test_mobile_presets_exist_and_are_tagged() -> None:
+    mobile = presets.filter_by_tag("mobile")
+    assert len(mobile) >= 4
+    for fp in mobile:
+        assert fp.mobile is True
+        assert fp.platform == "Android"
+        assert fp.architecture == "arm"
+        assert fp.max_touch_points == 5
+        assert "Mobile" in (fp.user_agent or ""), f"{fp.label} UA missing Mobile"
+
+
+def test_desktop_presets_are_not_mobile() -> None:
+    for fp in presets.ALL:
+        if "mobile" in fp.tags:
+            continue
+        assert fp.mobile is False, f"{fp.label} should not be mobile"
+        assert fp.max_touch_points == 0, f"{fp.label} should have 0 touch points"
+
+
+def test_filter_by_tag_returns_only_matching() -> None:
+    high_end = presets.filter_by_tag("high-end")
+    assert len(high_end) >= 5
+    assert all("high-end" in fp.tags for fp in high_end)
+
+
 def test_by_label_lookup() -> None:
     target = presets.windows_11_nvidia_rtx_4070()
     found = presets.by_label(target.label)
