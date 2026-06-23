@@ -7,9 +7,12 @@
     'Linux': fp.architecture === 'arm' ? 'Linux armv8l' : 'Linux x86_64',
     'Android': 'Linux armv8l',
   };
-  const platform = map[fp.platform] || fp.platform;
+  const platformValue = map[fp.platform] || fp.platform;
+  const getter = window.__fb_m
+    ? window.__fb_m(function () { return platformValue; }, 'get platform')
+    : function () { return platformValue; };
   Object.defineProperty(navigator, 'platform', {
-    get: () => platform,
+    get: getter,
     configurable: true,
   });
 })();

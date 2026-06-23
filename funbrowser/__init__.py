@@ -17,6 +17,7 @@ from ._errors import (
 from .browser import Browser
 from .element import ElementHandle
 from .fingerprint import Fingerprint, presets
+from .geo import GeoInfo, lookup_proxy_geo
 from .humanly import HumanBehavior
 from .profile import Profile
 from .proxy import Proxy, ProxyParseError
@@ -39,6 +40,7 @@ __all__ = [
     "FunBrowserError",
     "FunSolverClient",
     "FunSolverError",
+    "GeoInfo",
     "HumanBehavior",
     "Profile",
     "Proxy",
@@ -47,6 +49,7 @@ __all__ = [
     "TargetClosed",
     "__version__",
     "humanly",
+    "lookup_proxy_geo",
     "parse_proxy",
     "presets",
     "start",
@@ -61,6 +64,7 @@ async def start(
     stealth: bool = True,
     fingerprint: Fingerprint | None = None,
     proxy: str | Proxy | None = None,
+    geo_autoconfigure: bool = True,
     humanly: bool | HumanBehavior = False,
     api_key: str | None = None,
     auto_solve: bool = True,
@@ -89,6 +93,7 @@ async def start(
         stealth=stealth,
         fingerprint=fingerprint,
         proxy=proxy,
+        geo_autoconfigure=geo_autoconfigure,
         humanly=humanly,
         api_key=api_key,
         auto_solve=auto_solve,

@@ -37,6 +37,14 @@ Playwright leaks that get scripts flagged.
   randomised click hold, per-keystroke typing delays, sub-pixel target jitter.
   Defeats trajectory-based bot detectors (humans don't teleport in straight
   lines).
+- **WebRTC leak block** — strips `host` / `srflx` candidates from ICE so the
+  real IP doesn't bypass the proxy. Flag-level + JS-level belt-and-suspenders.
+- **toString camouflage** — `Object.getOwnPropertyDescriptor(navigator, 'webdriver').get.toString()`
+  reports `'function () { [native code] }'`, defeating the classic stealth-
+  detection probe most antibots run.
+- **Proxy → geo auto-coupling** — looks up the exit IP through the proxy
+  (ip-api.com) and fills `timezone` / `locale` / `Accept-Language` on the
+  active fingerprint. US proxy → US timezone, no manual config.
 - **Raw CDP over WebSocket** — no Selenium, no Playwright, no chromedriver. The
   protocol tells antibot servers use to flag automation aren't on the wire.
 

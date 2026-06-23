@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Any, Self
 from ._cdp import CDPConnection
 from ._launcher import LaunchedBrowser, launch_chrome
 from .fingerprint import Fingerprint
+from .geo import GeoInfo, lookup_proxy_geo
 from .humanly import DEFAULT as DEFAULT_HUMANLY
 from .humanly import HumanBehavior
 from .proxy import Proxy
@@ -19,6 +21,22 @@ from .proxy import parse as parse_proxy
 from .solver import FunSolverClient
 from .stealth import stealth_flags
 from .tab import Tab
+
+
+def _enrich_with_geo(fp: Fingerprint | None, geo: GeoInfo) -> Fingerprint:
+    """Layer a geo lookup into a Fingerprint without clobbering caller values."""
+    if fp is None:
+        return Fingerprint(
+            timezone=geo.timezone or None,
+            locale=geo.locale or None,
+            accept_language=geo.accept_language or None,
+        )
+    return dataclasses.replace(
+        fp,
+        timezone=fp.timezone or geo.timezone or None,
+        locale=fp.locale or geo.locale or None,
+        accept_language=fp.accept_language or geo.accept_language or None,
+    )
 
 
 class Browser:
@@ -32,6 +50,7 @@ class Browser:
         proxy: Proxy | None = None,
         humanly: HumanBehavior | None = None,
         solver_client: FunSolverClient | None = None,
+        geo: GeoInfo | None = None,
     ) -> None:
         self._launched = launched
         self._cdp = cdp
@@ -40,6 +59,7 @@ class Browser:
         self._proxy = proxy
         self._humanly = humanly
         self._solver_client = solver_client
+        self._geo = geo
         self._tabs: dict[str, Tab] = {}
 
     @property
@@ -66,6 +86,10 @@ class Browser:
     def humanly(self) -> HumanBehavior | None:
         return self._humanly
 
+    @property
+    def geo(self) -> GeoInfo | None:
+        return self._geo
+
     @classmethod
     async def start(
         cls,
@@ -76,6 +100,7 @@ class Browser:
         stealth: bool = True,
         fingerprint: Fingerprint | None = None,
         proxy: str | Proxy | None = None,
+        geo_autoconfigure: bool = True,
         humanly: bool | HumanBehavior = False,
         api_key: str | None = None,
         auto_solve: bool = True,
@@ -117,6 +142,15 @@ class Browser:
         else:
             humanly_profile = None
 
+        # Geo auto-coupling: ask ip-api.com (through the proxy) for the exit
+        # IP's timezone + locale, fill any matching fingerprint fields the
+        # caller didn't already set. Skip silently on any failure.
+        geo: GeoInfo | None = None
+        if proxy_obj is not None and geo_autoconfigure:
+            geo = await lookup_proxy_geo(proxy_obj)
+            if geo is not None:
+                fingerprint = _enrich_with_geo(fingerprint, geo)
+
         return cls(
             launched,
             cdp,
@@ -125,6 +159,7 @@ class Browser:
             proxy=proxy_obj,
             humanly=humanly_profile,
             solver_client=solver_client,
+            geo=geo,
         )
 
     @property

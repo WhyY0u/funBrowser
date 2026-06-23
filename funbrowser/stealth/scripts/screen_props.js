@@ -4,7 +4,10 @@
   const s = fp.screen;
   const set = (key, value) => {
     if (value === undefined || value === null) return;
-    Object.defineProperty(screen, key, { get: () => value, configurable: true });
+    const getter = window.__fb_m
+      ? window.__fb_m(function () { return value; }, 'get ' + key)
+      : function () { return value; };
+    Object.defineProperty(screen, key, { get: getter, configurable: true });
   };
   set('width', s.width);
   set('height', s.height);

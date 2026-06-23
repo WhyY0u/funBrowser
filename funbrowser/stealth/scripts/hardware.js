@@ -3,7 +3,10 @@
   if (!fp) return;
   const def = (obj, key, value) => {
     if (value === undefined || value === null) return;
-    Object.defineProperty(obj, key, { get: () => value, configurable: true });
+    const getter = window.__fb_m
+      ? window.__fb_m(function () { return value; }, 'get ' + key)
+      : function () { return value; };
+    Object.defineProperty(obj, key, { get: getter, configurable: true });
   };
   def(navigator, 'hardwareConcurrency', fp.hardwareConcurrency);
   def(navigator, 'deviceMemory', fp.deviceMemory);

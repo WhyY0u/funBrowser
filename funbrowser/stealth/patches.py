@@ -26,8 +26,9 @@ from ..fingerprint.presets import (
 if TYPE_CHECKING:
     from ..tab import Tab
 
-# Order matters — fingerprint globals must land first.
+# Order matters — fingerprint globals + camouflage land first, cleanup last.
 SCRIPTS = (
+    "_camouflage.js",
     "webdriver.js",
     "chrome_runtime.js",
     "plugins.js",
@@ -39,6 +40,8 @@ SCRIPTS = (
     "webgl.js",
     "canvas_noise.js",
     "audio_noise.js",
+    "webrtc.js",
+    "_cleanup.js",
 )
 
 

@@ -11,7 +11,10 @@ from __future__ import annotations
 
 def stealth_flags() -> list[str]:
     return [
-        # Block features that leak automation
+        # Block features that leak automation. WebRtcHideLocalIpsWithMdns is
+        # what mDNS-obfuscates ICE candidates; disabling it together with the
+        # IP-handling-policy flag below forces WebRTC traffic through the
+        # configured proxy instead of leaking the real local IP.
         "--disable-features="
         "AutomationControlled,"
         "Translate,"
@@ -22,9 +25,14 @@ def stealth_flags() -> list[str]:
         "AutoExpandDetailsElement,"
         "CertificateTransparencyComponentUpdater,"
         "AvoidUnnecessaryBeforeUnloadCheckSync,"
+        "WebRtcHideLocalIpsWithMdns,"
         "Translate",
         # Keep IdleDetection enabled (some sites check that it exists)
         "--enable-features=NetworkService,NetworkServiceInProcess",
+        # Force WebRTC traffic through the configured proxy. Without this,
+        # ICE candidates leak the host's real IPv4/IPv6 even when stealth is
+        # otherwise perfect.
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
         # Suppress background junk that screams "not a real user"
         "--disable-component-update",
         "--disable-background-networking",
