@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from . import humanly as humanly_mod
 from ._errors import (
     BrowserLaunchError,
     BrowserNotFoundError,
@@ -16,11 +17,14 @@ from ._errors import (
 from .browser import Browser
 from .element import ElementHandle
 from .fingerprint import Fingerprint, presets
+from .humanly import HumanBehavior
 from .profile import Profile
 from .proxy import Proxy, ProxyParseError
 from .proxy import parse as parse_proxy
 from .solver import FunSolverClient, FunSolverError
 from .tab import Tab
+
+humanly = humanly_mod
 
 __version__ = "0.0.1"
 
@@ -35,12 +39,14 @@ __all__ = [
     "FunBrowserError",
     "FunSolverClient",
     "FunSolverError",
+    "HumanBehavior",
     "Profile",
     "Proxy",
     "ProxyParseError",
     "Tab",
     "TargetClosed",
     "__version__",
+    "humanly",
     "parse_proxy",
     "presets",
     "start",
@@ -55,6 +61,7 @@ async def start(
     stealth: bool = True,
     fingerprint: Fingerprint | None = None,
     proxy: str | Proxy | None = None,
+    humanly: bool | HumanBehavior = False,
     api_key: str | None = None,
     auto_solve: bool = True,
     solver_base_url: str | None = None,
@@ -82,6 +89,7 @@ async def start(
         stealth=stealth,
         fingerprint=fingerprint,
         proxy=proxy,
+        humanly=humanly,
         api_key=api_key,
         auto_solve=auto_solve,
         solver_base_url=solver_base_url,

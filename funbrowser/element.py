@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from . import humanly as _humanly
+
 if TYPE_CHECKING:
     from .tab import Tab
 
@@ -88,6 +90,12 @@ class ElementHandle:
     async def click(self) -> None:
         """Click via real Input.dispatchMouseEvent at the element's centre.
 
+        With ``humanly`` active on the tab the cursor curves toward the
+        target (cubic Bezier + ease-in-out), the button-press holds for a
+        random duration, and the impact point includes pixel-level jitter
+        — none of which are visible at the DOM level but all of which
+        modern antibots score on. Without humanly, it's an instant click.
+
         Briefly retries (up to ~1.5s) on a zero-size box — covers elements
         that are visible-soon (CSS transitions, ``display:none`` toggles,
         late layout passes) without the caller having to wait explicitly.
@@ -109,12 +117,10 @@ class ElementHandle:
             if loop.time() >= deadline:
                 raise ValueError("element has zero size — cannot click")
             await asyncio.sleep(0.05)
-        x = float(box["x"])
-        y = float(box["y"])
-        await self._tab._send(
-            "Input.dispatchMouseEvent",
-            {"type": "mouseMoved", "x": x, "y": y},
-        )
+        behaviour = self._tab._humanly
+        x, y = _humanly.jitter_target(behaviour, float(box["x"]), float(box["y"]))
+        await _humanly.move(self._tab, x, y)
+        await _humanly.pre_action_delay(behaviour)
         await self._tab._send(
             "Input.dispatchMouseEvent",
             {
@@ -125,6 +131,7 @@ class ElementHandle:
                 "clickCount": 1,
             },
         )
+        await _humanly.click_hold(behaviour)
         await self._tab._send(
             "Input.dispatchMouseEvent",
             {
@@ -135,23 +142,33 @@ class ElementHandle:
                 "clickCount": 1,
             },
         )
+        self._tab._cursor = (x, y)
 
     async def focus(self) -> None:
         await self._call("function() { this.focus(); }")
 
     async def type(self, text: str, *, delay_ms: float = 0.0) -> None:
-        """Focus the element and insert ``text`` (one character at a time when
-        ``delay_ms`` > 0, so per-keystroke listeners like autocomplete fire).
+        """Focus the element and insert ``text``.
+
+        ``delay_ms > 0`` pauses that long between characters. With ``humanly``
+        active and ``delay_ms == 0`` (the default), the pause is randomised
+        per keystroke using the tab's behaviour profile, so keystroke timing
+        looks like a real user instead of an even cadence.
 
         Uses ``Input.insertText`` rather than synthesised ``keyDown``/``keyUp``
         events — more reliable across IME / layout cases. If a caller needs
         actual key codes (shortcuts, Tab key), reach for raw CDP directly.
         """
         await self.focus()
+        behaviour = self._tab._humanly
         if delay_ms > 0:
             for ch in text:
                 await self._tab._send("Input.insertText", {"text": ch})
                 await asyncio.sleep(delay_ms / 1000.0)
+        elif behaviour is not None:
+            for ch in text:
+                await self._tab._send("Input.insertText", {"text": ch})
+                await asyncio.sleep(_humanly.type_delay(behaviour))
         else:
             await self._tab._send("Input.insertText", {"text": text})
 
@@ -181,10 +198,9 @@ class ElementHandle:
         )
         if not box:
             raise ValueError("element not visible")
-        await self._tab._send(
-            "Input.dispatchMouseEvent",
-            {"type": "mouseMoved", "x": float(box["x"]), "y": float(box["y"])},
-        )
+        behaviour = self._tab._humanly
+        x, y = _humanly.jitter_target(behaviour, float(box["x"]), float(box["y"]))
+        await _humanly.move(self._tab, x, y)
 
     # ── reading ────────────────────────────────────────────────────────
 

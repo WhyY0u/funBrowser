@@ -12,6 +12,8 @@ from typing import Any, Self
 from ._cdp import CDPConnection
 from ._launcher import LaunchedBrowser, launch_chrome
 from .fingerprint import Fingerprint
+from .humanly import DEFAULT as DEFAULT_HUMANLY
+from .humanly import HumanBehavior
 from .proxy import Proxy
 from .proxy import parse as parse_proxy
 from .solver import FunSolverClient
@@ -28,6 +30,7 @@ class Browser:
         stealth: bool = True,
         fingerprint: Fingerprint | None = None,
         proxy: Proxy | None = None,
+        humanly: HumanBehavior | None = None,
         solver_client: FunSolverClient | None = None,
     ) -> None:
         self._launched = launched
@@ -35,6 +38,7 @@ class Browser:
         self._stealth = stealth
         self._fingerprint = fingerprint
         self._proxy = proxy
+        self._humanly = humanly
         self._solver_client = solver_client
         self._tabs: dict[str, Tab] = {}
 
@@ -58,6 +62,10 @@ class Browser:
     def solver_client(self) -> FunSolverClient | None:
         return self._solver_client
 
+    @property
+    def humanly(self) -> HumanBehavior | None:
+        return self._humanly
+
     @classmethod
     async def start(
         cls,
@@ -68,6 +76,7 @@ class Browser:
         stealth: bool = True,
         fingerprint: Fingerprint | None = None,
         proxy: str | Proxy | None = None,
+        humanly: bool | HumanBehavior = False,
         api_key: str | None = None,
         auto_solve: bool = True,
         solver_base_url: str | None = None,
@@ -98,12 +107,23 @@ class Browser:
             else:
                 solver_client = FunSolverClient(api_key)
 
+        humanly_profile: HumanBehavior | None
+        if humanly is True:
+            humanly_profile = DEFAULT_HUMANLY
+        elif humanly is False:
+            humanly_profile = None
+        elif isinstance(humanly, HumanBehavior):
+            humanly_profile = humanly
+        else:
+            humanly_profile = None
+
         return cls(
             launched,
             cdp,
             stealth=stealth,
             fingerprint=fingerprint,
             proxy=proxy_obj,
+            humanly=humanly_profile,
             solver_client=solver_client,
         )
 

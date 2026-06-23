@@ -33,6 +33,10 @@ Playwright leaks that get scripts flagged.
 - **Async Python SDK with auto-wait** — `await tab.fill("#email", "...")`,
   `await tab.click("button")`, `await tab.text("#result")`. No raw evaluate
   boilerplate, real `Input.dispatchMouseEvent` so `event.isTrusted == true`.
+- **Humanly mode** — opt-in cubic-Bezier mouse paths with ease-in-out timing,
+  randomised click hold, per-keystroke typing delays, sub-pixel target jitter.
+  Defeats trajectory-based bot detectors (humans don't teleport in straight
+  lines).
 - **Raw CDP over WebSocket** — no Selenium, no Playwright, no chromedriver. The
   protocol tells antibot servers use to flag automation aren't on the wire.
 
@@ -151,6 +155,40 @@ async with await funbrowser.start(user_data_dir=alice) as browser:
 ```
 
 `FUNBROWSER_PROFILES` env var changes the root.
+
+## Humanly mode (M5.5+)
+
+```python
+from funbrowser import humanly  # presets: humanly.FAST / .DEFAULT / .CAREFUL
+
+# Bool shortcut — uses the default profile.
+async with await funbrowser.start(humanly=True) as browser:
+    tab = await browser.get(URL)
+    await tab.click("button")     # cursor curves toward the target
+    await tab.type("#email", "ada@lovelace.dev")  # random per-keystroke gap
+
+# Pick a tuned preset.
+async with await funbrowser.start(humanly=humanly.CAREFUL) as browser:
+    ...
+
+# Or build your own.
+from funbrowser import HumanBehavior
+fp = HumanBehavior(
+    move_duration_ms_min=400, move_duration_ms_max=900,
+    click_hold_ms_min=80, click_hold_ms_max=180,
+    type_delay_ms_min=120, type_delay_ms_max=300,
+    target_jitter_px=4.0,
+)
+async with await funbrowser.start(humanly=fp) as browser:
+    ...
+```
+
+Each click emits 15–70 intermediate `mouseMoved` events tracing a randomised
+cubic-Bezier curve with ease-in-out timing instead of a single teleport. The
+button-press holds for a random duration before release. Typing pauses
+randomly between characters. Targets are hit with a few pixels of jitter
+from the centre. None of this is visible at the DOM level — but all of it is
+what modern antibots score against bot fingerprints.
 
 ## Ergonomics (M5.5)
 

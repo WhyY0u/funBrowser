@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from ._cdp import CDPConnection
 from ._errors import TargetClosed
 from .element import ElementHandle
+from .humanly import HumanBehavior
 
 if TYPE_CHECKING:
     from .browser import Browser
@@ -27,6 +28,9 @@ class Tab:
         self._url = "about:blank"
         self._blocked_patterns: list[str] = []
         self._block_unsub: Any = None
+        # cursor + humanly profile carried from Browser
+        self._cursor: tuple[float, float] | None = None
+        self._humanly: HumanBehavior | None = browser._humanly
 
     @property
     def target_id(self) -> str:
