@@ -19,6 +19,7 @@ from .element import ElementHandle
 from .fingerprint import Fingerprint, presets
 from .geo import GeoInfo, lookup_proxy_geo
 from .humanly import HumanBehavior
+from .pool import BrowserPool
 from .profile import Profile
 from .proxy import Proxy, ProxyParseError
 from .proxy import parse as parse_proxy
@@ -33,6 +34,7 @@ __all__ = [
     "Browser",
     "BrowserLaunchError",
     "BrowserNotFoundError",
+    "BrowserPool",
     "CDPConnectionClosed",
     "CDPError",
     "ElementHandle",

@@ -95,6 +95,34 @@ uv run python examples/stealth_check.py
 uv run python examples/stealth_check.py https://bot.sannysoft.com/
 ```
 
+## Browser farm (M5.6)
+
+```python
+from funbrowser import BrowserPool
+
+async def scrape(browser):
+    tab = await browser.get("https://example.com")
+    return await tab.evaluate("document.title")
+
+# Fleet of 5 browsers, each on a different proxy + auto-coupled timezone.
+async with BrowserPool(
+    size=5,
+    headless=True,
+    proxies=[
+        "user:pass@us-1.proxy.io:8080",
+        "user:pass@us-2.proxy.io:8080",
+        "user:pass@gb-1.proxy.io:8080",
+        "user:pass@de-1.proxy.io:8080",
+        "user:pass@jp-1.proxy.io:8080",
+    ],
+) as pool:
+    # 50 scrapes through 5 browsers — pool queues 10 per browser.
+    results = await pool.run_all([scrape] * 50)
+```
+
+`pool.acquire()` is the lower-level checkout API if you need it. `pool.size /
+.created / .idle / .busy / .browsers` for introspection.
+
 ## Custom fingerprint (M2.5)
 
 Pick a preset or build your own — the SDK plumbs the values into UA + Client
