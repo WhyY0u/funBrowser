@@ -1,15 +1,62 @@
 # FunBrowser
 
-Undetect browser with built-in captcha solving via [funsolver.com](https://funsolver.com).
+**Undetect / anti-detect browser SDK for Python.** Drives real Chrome through
+the Chrome DevTools Protocol (CDP) with built-in stealth patches, customizable
+browser fingerprints (UA, GPU, screen, timezone, CPU cores, …), full proxy
+support (HTTP/HTTPS/SOCKS, every common string format), and automatic captcha
+solving for Cloudflare Turnstile, reCAPTCHA v2/v3, hCaptcha, FunCaptcha, and
+GeeTest through [funsolver.com](https://funsolver.com).
 
-> Pre-alpha. Not yet released.
+Built for web scraping, browser automation, and bypassing anti-bot services
+(Cloudflare, DataDome, PerimeterX, Akamai Bot Manager) without the Selenium /
+Playwright leaks that get scripts flagged.
 
-## Goals
+> Pre-alpha. Not yet on PyPI — install from this repo.
 
-- Deep stealth — runtime CDP patches today, forked browser later
-- Captchas solve themselves — paste your funsolver.com API key and forget about reCAPTCHA / hCaptcha / Turnstile / FunCaptcha / GeeTest
-- Python async SDK with first-class fingerprint customization (presets or custom)
-- Raw CDP over WebSocket — no Selenium, no Playwright (both leak)
+## What it does
+
+- **Stealth out of the box** — strips `HeadlessChrome` from UA + Client Hints,
+  hides `navigator.webdriver`, fixes `chrome.runtime` / `plugins` / `languages`
+  / permissions tells, runs WebGL on the real GPU, adds 1-LSB noise to canvas
+  and audio readouts.
+- **Captcha auto-solve** — paste a `funsolver.com` API key and Turnstile /
+  reCAPTCHA / hCaptcha / FunCaptcha widgets get sniffed off the page, sent to
+  the solver, and the resulting token injected into the form for you.
+- **Fingerprint customization** — pick from preset configs (Windows + NVIDIA
+  RTX, macOS Apple Silicon, Linux Intel, …) or build a `Fingerprint(...)` with
+  arbitrary UA, GPU, screen, CPU, timezone, locale, languages.
+- **Proxy support, every format** — `host:port`, `host:port:user:pass`,
+  `user:pass@host:port`, `socks5://user:pass@host:port`, etc. — auto-detected
+  and parsed. HTTP/HTTPS auth handled via CDP.
+- **Persistent profiles** — `Profile.ensure("alice")` and cookies / localStorage
+  / login state survive between runs.
+- **Async Python SDK with auto-wait** — `await tab.fill("#email", "...")`,
+  `await tab.click("button")`, `await tab.text("#result")`. No raw evaluate
+  boilerplate, real `Input.dispatchMouseEvent` so `event.isTrusted == true`.
+- **Raw CDP over WebSocket** — no Selenium, no Playwright, no chromedriver. The
+  protocol tells antibot servers use to flag automation aren't on the wire.
+
+## Use cases
+
+- Web scraping behind Cloudflare / DataDome / PerimeterX / Akamai
+- Automating multi-account workflows (one persistent profile per account)
+- Filling forms and clicking through captcha-gated flows
+- Headless data extraction with realistic browser fingerprints
+- Replacement for `puppeteer-extra-stealth`, `undetected-chromedriver`,
+  `selenium-stealth`, or `playwright-stealth` patterns — in Python, async,
+  with a built-in solver instead of bring-your-own-API.
+
+## Compared to other stealth options
+
+| | FunBrowser | puppeteer-stealth / undetected-chromedriver | Camoufox / Chromium fork |
+|---|---|---|---|
+| Stealth patches | runtime + GPU | runtime | C++-level (deeper) |
+| Real GPU fingerprint | yes (`--use-gl=angle`) | optional | yes |
+| Built-in captcha solver | **yes (funsolver.com)** | bring your own | bring your own |
+| Fingerprint presets + custom | yes | partial | yes |
+| Python async SDK | yes | Node.js / Python | both |
+| Setup | `pip install` | `pip install` | bundled fork |
+| Detection ceiling | Cloudflare standard, DataDome basic | similar | top-tier Kasada / DataDome heavy |
 
 ## Today (M1 + M2 shipped)
 
