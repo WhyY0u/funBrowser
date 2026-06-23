@@ -55,6 +55,10 @@ class Tab:
             from .stealth import apply_stealth
 
             await apply_stealth(self, self._browser.fingerprint)
+        if self._browser.proxy is not None and self._browser.proxy.has_auth:
+            from .proxy import attach_auth
+
+            await attach_auth(self, self._browser.proxy)
         if self._browser.auto_solve_enabled:
             from .solver import apply_solver
 

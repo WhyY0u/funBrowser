@@ -74,6 +74,37 @@ still comes from the real GPU underneath, so top-tier antibots can still
 catch the mismatch by comparing the claimed renderer to the actual pixels.
 Full shader-level spoofing is M9.
 
+## Proxies (M5)
+
+Pass any common proxy-string format — the parser auto-detects layout.
+
+```python
+# All of these work:
+funbrowser.start(proxy="1.2.3.4:8080")
+funbrowser.start(proxy="http://1.2.3.4:8080")
+funbrowser.start(proxy="user:pass@1.2.3.4:8080")
+funbrowser.start(proxy="1.2.3.4:8080:user:pass")    # IPRoyal / Smartproxy lists
+funbrowser.start(proxy="user:pass:1.2.3.4:8080")    # legacy listings
+funbrowser.start(proxy="1.2.3.4:8080@user:pass")
+funbrowser.start(proxy="socks5://user:pass@1.2.3.4:1080")
+```
+
+HTTP/HTTPS auth flows through CDP automatically. SOCKS auth needs an
+upstream HTTP wrapper (Chrome doesn't expose SOCKS auth via DevTools).
+
+## Persistent profiles (M5)
+
+```python
+from funbrowser import Profile
+
+alice = Profile.ensure("alice")     # ./funbrowser_profiles/alice
+async with await funbrowser.start(user_data_dir=alice) as browser:
+    # cookies, localStorage, IndexedDB, login state persist between runs
+    ...
+```
+
+`FUNBROWSER_PROFILES` env var changes the root.
+
 ## Auto-solve captchas (M3 — Cloudflare Turnstile today, the rest in M4)
 
 ```python
@@ -96,7 +127,7 @@ See `CHANGELOG.md` for what's landed.
 | M2 | Stealth Tier 1 + 2 | done | basic markers + real GPU + canvas/audio noise |
 | M3 | Solver bridge + Turnstile | done | |
 | M4 | reCAPTCHA / hCaptcha / FunCaptcha / GeeTest | pending | |
-| M5 | Production hardening | pending | profiles, proxies, retries, multi-tab |
+| M5 | Production hardening | in progress | proxies + profiles done; retries + multi-tab next |
 | M6 | **v0.1 release** | pending | PyPI, docs |
 | M7 | Fingerprint consistency (Tier 3) | post-v0.1 | Client Hints + tz + screen + fonts coherent across layers |
 | M8 | Real fingerprint pool (Tier 4) | post-v0.1 | bundled DB of real-user fingerprints, per-profile rotation |

@@ -12,6 +12,8 @@ from typing import Self
 from ._cdp import CDPConnection
 from ._launcher import LaunchedBrowser, launch_chrome
 from .fingerprint import Fingerprint
+from .proxy import Proxy
+from .proxy import parse as parse_proxy
 from .solver import FunSolverClient
 from .stealth import stealth_flags
 from .tab import Tab
@@ -25,12 +27,14 @@ class Browser:
         *,
         stealth: bool = True,
         fingerprint: Fingerprint | None = None,
+        proxy: Proxy | None = None,
         solver_client: FunSolverClient | None = None,
     ) -> None:
         self._launched = launched
         self._cdp = cdp
         self._stealth = stealth
         self._fingerprint = fingerprint
+        self._proxy = proxy
         self._solver_client = solver_client
         self._tabs: dict[str, Tab] = {}
 
@@ -41,6 +45,10 @@ class Browser:
     @property
     def fingerprint(self) -> Fingerprint | None:
         return self._fingerprint
+
+    @property
+    def proxy(self) -> Proxy | None:
+        return self._proxy
 
     @property
     def auto_solve_enabled(self) -> bool:
@@ -59,6 +67,7 @@ class Browser:
         headless: bool = False,
         stealth: bool = True,
         fingerprint: Fingerprint | None = None,
+        proxy: str | Proxy | None = None,
         api_key: str | None = None,
         auto_solve: bool = True,
         solver_base_url: str | None = None,
@@ -67,6 +76,12 @@ class Browser:
         extra: list[str] = list(args)
         if stealth:
             extra = [*stealth_flags(), *extra]
+
+        proxy_obj: Proxy | None = None
+        if proxy is not None:
+            proxy_obj = parse_proxy(proxy)
+            extra.append(f"--proxy-server={proxy_obj.chrome_arg()}")
+
         launched = await launch_chrome(
             executable=Path(executable) if executable else None,
             user_data_dir=Path(user_data_dir) if user_data_dir else None,
@@ -88,6 +103,7 @@ class Browser:
             cdp,
             stealth=stealth,
             fingerprint=fingerprint,
+            proxy=proxy_obj,
             solver_client=solver_client,
         )
 

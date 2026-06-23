@@ -15,6 +15,9 @@ from ._errors import (
 )
 from .browser import Browser
 from .fingerprint import Fingerprint, presets
+from .profile import Profile
+from .proxy import Proxy, ProxyParseError
+from .proxy import parse as parse_proxy
 from .solver import FunSolverClient, FunSolverError
 from .tab import Tab
 
@@ -30,9 +33,13 @@ __all__ = [
     "FunBrowserError",
     "FunSolverClient",
     "FunSolverError",
+    "Profile",
+    "Proxy",
+    "ProxyParseError",
     "Tab",
     "TargetClosed",
     "__version__",
+    "parse_proxy",
     "presets",
     "start",
 ]
@@ -45,12 +52,18 @@ async def start(
     headless: bool = False,
     stealth: bool = True,
     fingerprint: Fingerprint | None = None,
+    proxy: str | Proxy | None = None,
     api_key: str | None = None,
     auto_solve: bool = True,
     solver_base_url: str | None = None,
     args: Sequence[str] = (),
 ) -> Browser:
     """Launch Chrome and return a connected Browser.
+
+    ``proxy`` accepts any string format common in proxy lists — see
+    :mod:`funbrowser.proxy` for the full list — or a pre-built
+    :class:`Proxy`. HTTP/HTTPS auth is handled automatically via CDP;
+    SOCKS auth is not (front with a local HTTP proxy).
 
     Pass ``fingerprint=`` (a :class:`Fingerprint` or a value from
     :mod:`funbrowser.presets`) to override the JS-visible identity values
@@ -66,6 +79,7 @@ async def start(
         headless=headless,
         stealth=stealth,
         fingerprint=fingerprint,
+        proxy=proxy,
         api_key=api_key,
         auto_solve=auto_solve,
         solver_base_url=solver_base_url,
