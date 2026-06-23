@@ -31,7 +31,8 @@ async def test_index_returns_html() -> None:
             r = await client.get(panel.url)
             assert r.status_code == 200
             assert "text/html" in r.headers["content-type"]
-            assert "FunBrowser pool" in r.text
+            assert "FunBrowser" in r.text
+            assert "Browser Fleet" in r.text
     await pool.stop()
 
 

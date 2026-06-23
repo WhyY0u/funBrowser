@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import humanly as humanly_mod
+from . import tls as tls_mod
 from ._errors import (
     BrowserLaunchError,
     BrowserNotFoundError,
@@ -33,6 +34,7 @@ from .solver import FunSolverClient, FunSolverError
 from .tab import Tab
 
 humanly = humanly_mod
+tls = tls_mod
 
 __version__ = "0.0.1"
 
@@ -62,6 +64,7 @@ __all__ = [
     "parse_proxy",
     "presets",
     "start",
+    "tls",
 ]
 
 
@@ -75,6 +78,7 @@ async def start(
     proxy: str | Proxy | None = None,
     geo_autoconfigure: bool = True,
     humanly: bool | HumanBehavior = False,
+    mini: bool = False,
     api_key: str | None = None,
     auto_solve: bool = True,
     solver_base_url: str | None = None,
@@ -104,6 +108,7 @@ async def start(
         proxy=proxy,
         geo_autoconfigure=geo_autoconfigure,
         humanly=humanly,
+        mini=mini,
         api_key=api_key,
         auto_solve=auto_solve,
         solver_base_url=solver_base_url,

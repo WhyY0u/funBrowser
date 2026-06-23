@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import shutil
+import time
+from collections import deque
 from collections.abc import Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
 
 from ._cdp import CDPConnection
+from ._flags import merge_flags, mini_flags
 from ._launcher import LaunchedBrowser, launch_chrome
 from .fingerprint import Fingerprint
 from .geo import GeoInfo, lookup_proxy_geo
@@ -61,6 +64,9 @@ class Browser:
         self._solver_client = solver_client
         self._geo = geo
         self._tabs: dict[str, Tab] = {}
+        # Browser-scoped event log — populated by the solver bridge whenever
+        # a captcha is attempted. Panel and any other observer can read it.
+        self._events: deque[dict[str, Any]] = deque(maxlen=100)
 
     @property
     def stealth_enabled(self) -> bool:
@@ -87,6 +93,15 @@ class Browser:
         return self._humanly
 
     @property
+    def events(self) -> tuple[dict[str, Any], ...]:
+        """Recent browser-scoped events (most recent first)."""
+        return tuple(self._events)
+
+    def record_event(self, **fields: Any) -> None:
+        """Append an event to the browser's log. Timestamp added automatically."""
+        self._events.appendleft({"ts": time.time(), **fields})
+
+    @property
     def geo(self) -> GeoInfo | None:
         return self._geo
 
@@ -102,19 +117,25 @@ class Browser:
         proxy: str | Proxy | None = None,
         geo_autoconfigure: bool = True,
         humanly: bool | HumanBehavior = False,
+        mini: bool = False,
         api_key: str | None = None,
         auto_solve: bool = True,
         solver_base_url: str | None = None,
         args: Sequence[str] = (),
     ) -> Self:
-        extra: list[str] = list(args)
+        parts: list[list[str]] = []
         if stealth:
-            extra = [*stealth_flags(), *extra]
+            parts.append(stealth_flags())
+        if mini:
+            parts.append(mini_flags())
 
         proxy_obj: Proxy | None = None
         if proxy is not None:
             proxy_obj = parse_proxy(proxy)
-            extra.append(f"--proxy-server={proxy_obj.chrome_arg()}")
+            parts.append([f"--proxy-server={proxy_obj.chrome_arg()}"])
+
+        parts.append(list(args))
+        extra = merge_flags(*parts)
 
         launched = await launch_chrome(
             executable=Path(executable) if executable else None,

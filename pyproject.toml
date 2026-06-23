@@ -69,6 +69,12 @@ dependencies = [
 [project.optional-dependencies]
 # Local web panel for pool management. Install with: pip install funbrowser[panel]
 panel = ["aiohttp>=3.9"]
+# TLS fingerprint impersonation via curl_cffi + CA cert lifecycle via
+# cryptography. Install with: pip install funbrowser[tls]
+tls = [
+    "curl_cffi>=0.7",
+    "cryptography>=42",
+]
 
 [project.urls]
 Homepage = "https://github.com/WhyY0u/funBrowser"
@@ -80,8 +86,10 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
     "mypy>=1.10",
-    # panel extras are pulled in for tests too
+    # optional extras pulled in for tests too
     "aiohttp>=3.9",
+    "curl_cffi>=0.7",
+    "cryptography>=42",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -116,6 +124,14 @@ ignore = [
 # Demo scripts hit the disk synchronously by design — async-file purity here
 # would obscure the point of the example.
 "examples/**" = ["ASYNC230", "ASYNC240"]
+# panel.py embeds a long HTML string; ambiguous Unicode glyphs (× ⚫ ⚙ etc.)
+# are intentional UI elements, and Python line-length rules don't apply to
+# embedded HTML/CSS/JS.
+"funbrowser/panel.py" = ["E501", "RUF001"]
+# mitm.py writes ephemeral cert files for ssl.load_cert_chain — that API
+# takes filenames, not bytes. Path.unlink under async is a deliberate
+# choice, not an oversight.
+"funbrowser/tls/mitm.py" = ["ASYNC240"]
 
 [tool.mypy]
 python_version = "3.11"

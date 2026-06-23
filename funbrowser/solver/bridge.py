@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from importlib.resources import files
 from typing import TYPE_CHECKING, Any
 
@@ -68,12 +69,32 @@ async def apply_solver(tab: Tab, client: FunSolverClient) -> None:
             return
 
         task_id = payload.get("id")
+        cap_type = str(payload.get("type", "?"))
+        t0 = time.monotonic()
         try:
             token = await _solve_dispatch(client, payload)
+            ms = (time.monotonic() - t0) * 1000.0
             result: dict[str, Any] = {"ok": True, "token": token}
+            tab._browser.record_event(
+                kind="captcha",
+                captcha=cap_type,
+                ok=True,
+                ms=ms,
+                token_preview=(token[:24] + "…") if len(token) > 24 else token,
+                url=payload.get("url"),
+            )
         except Exception as exc:
+            ms = (time.monotonic() - t0) * 1000.0
             logger.warning("solver: solve failed: %s", exc)
             result = {"ok": False, "error": str(exc)}
+            tab._browser.record_event(
+                kind="captcha",
+                captcha=cap_type,
+                ok=False,
+                ms=ms,
+                error=str(exc),
+                url=payload.get("url"),
+            )
 
         try:
             await tab._cdp.send(
