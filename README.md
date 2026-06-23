@@ -135,10 +135,6 @@ See `CHANGELOG.md` for what's landed.
 | M10 | TLS JA3/JA4 fingerprint | post-v0.1 | mitm with curl_cffi/utls, or BoringSSL patch in M11 |
 | M11 | Browser fork | post-v0.1 | Camoufox or ungoogled-chromium with C++ stealth patches |
 | M12 | Tauri UI for manual mode | post-v0.1 | desktop app with tabs/address bar/settings |
-| M3 | Solver bridge + Turnstile | pending |
-| M4 | reCAPTCHA, hCaptcha, FunCaptcha, GeeTest | pending |
-| M5 | Production hardening | pending |
-| M6 | v0.1 release | pending |
 
 ## Development
 

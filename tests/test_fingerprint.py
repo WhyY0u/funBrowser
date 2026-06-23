@@ -8,6 +8,19 @@ import funbrowser
 from funbrowser import Fingerprint, presets
 from funbrowser._launcher import find_chrome
 
+# Robust WebGL renderer probe — falls back to gl.RENDERER when the
+# WEBGL_debug_renderer_info extension is unavailable (headless Linux CI),
+# returns null when WebGL itself is missing.
+WEBGL_RENDERER_JS = """
+(() => {
+  const gl = document.createElement('canvas').getContext('webgl');
+  if (!gl) return null;
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  if (ext) return gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
+  return gl.getParameter(gl.RENDERER);
+})()
+"""
+
 
 def test_all_presets_have_required_fields() -> None:
     for fp in presets.ALL:
@@ -93,12 +106,9 @@ async def test_preset_overrides_webgl_renderer() -> None:
     fp = presets.windows_11_amd_radeon_6700_xt()
     async with await funbrowser.start(headless=True, fingerprint=fp) as browser:
         tab = await browser.get("https://example.com")
-        renderer = await tab.evaluate(
-            "(() => { const c = document.createElement('canvas');"
-            " const gl = c.getContext('webgl');"
-            " const ext = gl.getExtension('WEBGL_debug_renderer_info');"
-            " return gl.getParameter(ext.UNMASKED_RENDERER_WEBGL); })()"
-        )
+        renderer = await tab.evaluate(WEBGL_RENDERER_JS)
+        if renderer is None:
+            pytest.skip("WebGL unavailable in this environment")
         assert "AMD" in renderer
         assert "RX 6700" in renderer
 
@@ -137,13 +147,9 @@ async def test_no_fingerprint_keeps_default_behavior() -> None:
         ua = await tab.evaluate("navigator.userAgent")
         # default mode still strips HeadlessChrome
         assert "HeadlessChrome" not in ua
-        # webgl renderer comes from real hardware (no override)
-        renderer = await tab.evaluate(
-            "(() => { const c = document.createElement('canvas');"
-            " const gl = c.getContext('webgl');"
-            " const ext = gl.getExtension('WEBGL_debug_renderer_info');"
-            " return gl.getParameter(ext.UNMASKED_RENDERER_WEBGL); })()"
-        )
-        # something real should come back, exact value depends on host
-        assert isinstance(renderer, str)
-        assert len(renderer) > 0
+        renderer = await tab.evaluate(WEBGL_RENDERER_JS)
+        # On environments with WebGL we expect a real renderer string;
+        # CI without GPU may have WebGL disabled entirely, which is fine.
+        if renderer is not None:
+            assert isinstance(renderer, str)
+            assert len(renderer) > 0
