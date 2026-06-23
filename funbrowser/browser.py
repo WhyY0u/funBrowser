@@ -11,14 +11,26 @@ from typing import Self
 
 from ._cdp import CDPConnection
 from ._launcher import LaunchedBrowser, launch_chrome
+from .stealth import stealth_flags
 from .tab import Tab
 
 
 class Browser:
-    def __init__(self, launched: LaunchedBrowser, cdp: CDPConnection) -> None:
+    def __init__(
+        self,
+        launched: LaunchedBrowser,
+        cdp: CDPConnection,
+        *,
+        stealth: bool = True,
+    ) -> None:
         self._launched = launched
         self._cdp = cdp
+        self._stealth = stealth
         self._tabs: dict[str, Tab] = {}
+
+    @property
+    def stealth_enabled(self) -> bool:
+        return self._stealth
 
     @classmethod
     async def start(
@@ -27,17 +39,21 @@ class Browser:
         executable: str | Path | None = None,
         user_data_dir: str | Path | None = None,
         headless: bool = False,
+        stealth: bool = True,
         args: Sequence[str] = (),
     ) -> Self:
+        extra: list[str] = list(args)
+        if stealth:
+            extra = [*stealth_flags(), *extra]
         launched = await launch_chrome(
             executable=Path(executable) if executable else None,
             user_data_dir=Path(user_data_dir) if user_data_dir else None,
             headless=headless,
-            extra_args=args,
+            extra_args=extra,
         )
         cdp = CDPConnection(launched.ws_url)
         await cdp.connect()
-        return cls(launched, cdp)
+        return cls(launched, cdp, stealth=stealth)
 
     @property
     def tabs(self) -> list[Tab]:

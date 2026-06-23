@@ -51,6 +51,10 @@ class Tab:
         # leak (Runtime.consoleAPICalled / Error.stack trick); Runtime.evaluate
         # works fine without it.
         await self._send("Page.enable")
+        if self._browser.stealth_enabled:
+            from .stealth import apply_stealth
+
+            await apply_stealth(self)
 
     async def goto(
         self,

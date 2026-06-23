@@ -37,6 +37,7 @@ async def start(
     executable: str | Path | None = None,
     user_data_dir: str | Path | None = None,
     headless: bool = False,
+    stealth: bool = True,
     args: Sequence[str] = (),
 ) -> Browser:
     """Launch Chrome and return a connected Browser."""
@@ -44,5 +45,6 @@ async def start(
         executable=executable,
         user_data_dir=user_data_dir,
         headless=headless,
+        stealth=stealth,
         args=args,
     )
