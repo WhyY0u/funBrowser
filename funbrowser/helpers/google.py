@@ -92,20 +92,42 @@ async def login(
     )
 
     # ── email ─────────────────────────────────────────────────────────
-    try:
-        await tab.fill('input[type="email"]', email, timeout=timeout)
-    except Exception as exc:
-        return {"ok": False, "url": tab.url, "challenge": f"email-input: {exc}"}
+    # Google's email input is `<input type="text" id="identifierId"
+    # name="identifier">` — NOT type=email. Selectors are listed by
+    # likelihood: id first, then name, then aria-label.
+    email_filled = False
+    for sel in ("#identifierId", 'input[name="identifier"]', 'input[aria-label*="Email" i]'):
+        try:
+            await tab.fill(sel, email, timeout=8.0)
+            email_filled = True
+            break
+        except Exception:
+            continue
+    if not email_filled:
+        return {"ok": False, "url": tab.url, "challenge": "email-input-not-found"}
     await tab.click("#identifierNext")
     await asyncio.sleep(1.5)
 
     # ── password ──────────────────────────────────────────────────────
-    try:
-        await tab.find('input[type="password"]', timeout=timeout)
-    except TimeoutError:
+    # Password input is the standard `<input type="password" name="Passwd">`
+    # inside a wrapping div, but type selector works fine across A/B variants.
+    pwd_sel_candidates = (
+        'input[type="password"]',
+        'input[name="Passwd"]',
+        'input[aria-label*="password" i]',
+    )
+    pwd_sel = None
+    for sel in pwd_sel_candidates:
+        try:
+            await tab.find(sel, timeout=timeout / 4)
+            pwd_sel = sel
+            break
+        except TimeoutError:
+            continue
+    if pwd_sel is None:
         return {"ok": False, "url": tab.url, "challenge": "password-page-never-appeared"}
     await asyncio.sleep(0.8)
-    await tab.fill('input[type="password"]', password, timeout=timeout)
+    await tab.fill(pwd_sel, password, timeout=timeout)
     await tab.click("#passwordNext")
 
     # ── wait for success or challenge ─────────────────────────────────
@@ -141,7 +163,32 @@ async def login(
             if "tap" in body_text and "phone" in body_text:
                 return {"ok": False, "url": url, "challenge": "phone-prompt"}
 
+    # Active verification: if we ran out of time but didn't see a clear
+    # success/failure signal, navigate to myaccount.google.com directly.
+    # When logged in: lands on myaccount.google.com (no redirect).
+    # When not logged in: Google bounces us to
+    # accounts.google.com/ServiceLogin?... or /signin/... .
+    verified = await _verify_logged_in(tab)
+    if verified:
+        return {"ok": True, "url": tab.url, "challenge": None}
     return {"ok": False, "url": tab.url, "challenge": last_challenge or "timeout"}
+
+
+async def _verify_logged_in(tab: Tab) -> bool:
+    """Hard-check by navigating to myaccount.google.com.
+
+    Returns True if we land on the dashboard, False if Google bounces
+    us back to a sign-in URL.
+    """
+    try:
+        await tab.goto("https://myaccount.google.com/", timeout=20.0)
+    except Exception:
+        return False
+    await asyncio.sleep(1.0)
+    final = tab.url.lower()
+    if "myaccount.google.com" in final and "signin" not in final:
+        return True
+    return False
 
 
 async def _resolve_tab(browser_or_tab: Browser | Tab) -> Tab:

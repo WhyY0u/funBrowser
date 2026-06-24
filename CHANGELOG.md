@@ -89,6 +89,26 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.16] - 2026-06-24
+
+### Fixed
+
+- `funbrowser.helpers.google` now imported automatically — was missing
+  `from . import google, totp` in `helpers/__init__.py`, so
+  `funbrowser.helpers.google.login(...)` raised `AttributeError`.
+- Google email-input selector corrected: the real field is
+  `<input type="text" id="identifierId" name="identifier">`, not
+  `type="email"`. Helper now tries `#identifierId` → `input[name="identifier"]`
+  → aria-label fallback.
+- Password-page selectors now also try `name="Passwd"` and an aria-label
+  fallback, not just `type="password"`.
+- Login success is now actively verified by navigating to
+  `myaccount.google.com` after the wait loop: if Google keeps us on the
+  dashboard we return `ok=True`; if it bounces to `/signin` we return
+  `ok=False`. Previously we only watched the URL passively during the
+  poll window and could miss a successful login that took longer than
+  the timeout to reflect in the URL.
+
 ## [0.1.15] - 2026-06-24
 
 ### Added — automation helpers
