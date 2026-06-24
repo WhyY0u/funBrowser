@@ -10,7 +10,7 @@ from collections import deque
 from collections.abc import Sequence
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from ._cdp import CDPConnection
 from ._flags import merge_flags, mini_flags
@@ -24,6 +24,9 @@ from .proxy import parse as parse_proxy
 from .solver import FunSolverClient
 from .stealth import stealth_flags
 from .tab import Tab
+
+if TYPE_CHECKING:
+    from .context import BrowserContext as BrowserContextT
 
 
 def _enrich_with_geo(fp: Fingerprint | None, geo: GeoInfo) -> Fingerprint:
@@ -67,6 +70,10 @@ class Browser:
         # Browser-scoped event log — populated by the solver bridge whenever
         # a captcha is attempted. Panel and any other observer can read it.
         self._events: deque[dict[str, Any]] = deque(maxlen=100)
+        # Browser contexts (CDP browserContextIds) currently alive on this
+        # process. Populated by funbrowser.context._create_context_on,
+        # drained by BrowserContext.close.
+        self._contexts: set[str] = set()
 
     @property
     def stealth_enabled(self) -> bool:
@@ -100,6 +107,22 @@ class Browser:
     def record_event(self, **fields: Any) -> None:
         """Append an event to the browser's log. Timestamp added automatically."""
         self._events.appendleft({"ts": time.time(), **fields})
+
+    async def create_context(
+        self,
+        *,
+        proxy: str | Proxy | None = None,
+        proxy_bypass: list[str] | None = None,
+    ) -> BrowserContextT:
+        """Create an isolated :class:`BrowserContext` inside this Browser.
+
+        Cheap (~5-15 MB) compared to launching a fresh Chrome. Each
+        context has its own cookies / storage / cache, and optionally
+        its own proxy. See :mod:`funbrowser.context` for the trade-offs.
+        """
+        from .context import _create_context_on
+
+        return await _create_context_on(self, proxy=proxy, proxy_bypass=proxy_bypass)
 
     @property
     def geo(self) -> GeoInfo | None:

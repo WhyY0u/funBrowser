@@ -31,7 +31,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BINDING_NAME = "__funbrowser_solve"
-SCRIPTS = ("_bootstrap.js", "turnstile.js")
+SCRIPTS = (
+    "_bootstrap.js",
+    "turnstile.js",
+    "recaptcha_v2.js",
+    "recaptcha_v3.js",
+    "hcaptcha.js",
+    "funcaptcha.js",
+    "geetest.js",
+)
 
 
 def _load_scripts() -> str:
@@ -50,6 +58,43 @@ async def _solve_dispatch(client: FunSolverClient, payload: dict[str, Any]) -> s
             page_url=payload["url"],
             action=payload.get("action"),
             cdata=payload.get("cdata"),
+        )
+    if cap_type == "recaptcha2":
+        return await client.solve_recaptcha_v2(
+            sitekey=payload["sitekey"],
+            page_url=payload["url"],
+            invisible=bool(payload.get("invisible", False)),
+            data_s=payload.get("dataS"),
+            is_enterprise=bool(payload.get("enterprise", False)),
+        )
+    if cap_type == "recaptcha3":
+        return await client.solve_recaptcha_v3(
+            sitekey=payload["sitekey"],
+            page_url=payload["url"],
+            action=payload.get("action", "verify"),
+            min_score=float(payload.get("minScore", 0.7)),
+            is_enterprise=bool(payload.get("enterprise", False)),
+        )
+    if cap_type == "hcaptcha":
+        return await client.solve_hcaptcha(
+            sitekey=payload["sitekey"],
+            page_url=payload["url"],
+            is_invisible=bool(payload.get("invisible", False)),
+        )
+    if cap_type == "funcaptcha":
+        return await client.solve_funcaptcha(
+            public_key=payload["sitekey"],
+            page_url=payload["url"],
+            surl=payload.get("surl"),
+            data=payload.get("blob"),
+        )
+    if cap_type == "geetest":
+        return await client.solve_geetest(
+            gt=payload["gt"],
+            challenge=payload["challenge"],
+            page_url=payload["url"],
+            api_server=payload.get("apiServer"),
+            version=int(payload.get("version", 3)),
         )
     raise FunSolverError(f"unsupported captcha type: {cap_type!r}")
 

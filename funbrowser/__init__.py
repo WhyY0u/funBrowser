@@ -16,6 +16,8 @@ from ._errors import (
     TargetClosed,
 )
 from .browser import Browser
+from .context import BrowserContext
+from .context_pool import ContextPool
 from .element import ElementHandle
 from .fingerprint import Fingerprint, presets
 from .geo import GeoInfo, lookup_proxy_geo
@@ -40,11 +42,13 @@ __version__ = "0.0.1"
 
 __all__ = [
     "Browser",
+    "BrowserContext",
     "BrowserLaunchError",
     "BrowserNotFoundError",
     "BrowserPool",
     "CDPConnectionClosed",
     "CDPError",
+    "ContextPool",
     "ElementHandle",
     "Fingerprint",
     "FunBrowserError",

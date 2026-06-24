@@ -74,6 +74,133 @@ class FunSolverClient:
             task["data"] = cdata
         return await self._solve(task)
 
+    async def solve_recaptcha_v2(
+        self,
+        *,
+        sitekey: str,
+        page_url: str,
+        invisible: bool = False,
+        data_s: str | None = None,
+        is_enterprise: bool = False,
+    ) -> str:
+        """reCAPTCHA v2 — both checkbox and invisible variants.
+
+        ``data_s`` is the value of the ``data-s`` attribute used on
+        Google-owned properties; safe to omit elsewhere. ``is_enterprise``
+        switches the task type for Enterprise sites.
+        """
+        if is_enterprise:
+            task_type = "RecaptchaV2EnterpriseTaskProxyless"
+        else:
+            task_type = "RecaptchaV2TaskProxyless"
+        task: dict[str, Any] = {
+            "type": task_type,
+            "websiteURL": page_url,
+            "websiteKey": sitekey,
+        }
+        if invisible:
+            task["isInvisible"] = True
+        if data_s is not None:
+            task["recaptchaDataSValue"] = data_s
+        return await self._solve(task)
+
+    async def solve_recaptcha_v3(
+        self,
+        *,
+        sitekey: str,
+        page_url: str,
+        action: str = "verify",
+        min_score: float = 0.7,
+        is_enterprise: bool = False,
+    ) -> str:
+        """reCAPTCHA v3 — score-based, needs the page's expected action name."""
+        task_type = (
+            "RecaptchaV3EnterpriseTaskProxyless" if is_enterprise else "RecaptchaV3TaskProxyless"
+        )
+        return await self._solve(
+            {
+                "type": task_type,
+                "websiteURL": page_url,
+                "websiteKey": sitekey,
+                "pageAction": action,
+                "minScore": min_score,
+            }
+        )
+
+    async def solve_hcaptcha(
+        self,
+        *,
+        sitekey: str,
+        page_url: str,
+        is_invisible: bool = False,
+        enterprise_payload: dict[str, Any] | None = None,
+    ) -> str:
+        task: dict[str, Any] = {
+            "type": "HCaptchaTaskProxyless",
+            "websiteURL": page_url,
+            "websiteKey": sitekey,
+        }
+        if is_invisible:
+            task["isInvisible"] = True
+        if enterprise_payload is not None:
+            task["enterprisePayload"] = enterprise_payload
+        return await self._solve(task)
+
+    async def solve_funcaptcha(
+        self,
+        *,
+        public_key: str,
+        page_url: str,
+        surl: str | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> str:
+        """FunCaptcha / Arkose Labs.
+
+        ``public_key`` is the value of the widget's ``data-pkey``.
+        ``surl`` is the FunCaptcha API URL — required for some setups,
+        ``data`` carries additional context the site computes (the
+        encrypted ``data`` blob).
+        """
+        task: dict[str, Any] = {
+            "type": "FunCaptchaTaskProxyless",
+            "websiteURL": page_url,
+            "websitePublicKey": public_key,
+        }
+        if surl is not None:
+            task["funcaptchaApiJSSubdomain"] = surl
+        if data is not None:
+            task["data"] = data
+        return await self._solve(task)
+
+    async def solve_geetest(
+        self,
+        *,
+        gt: str,
+        challenge: str,
+        page_url: str,
+        api_server: str | None = None,
+        version: int = 3,
+        init_parameters: dict[str, Any] | None = None,
+    ) -> str:
+        """GeeTest v3/v4.
+
+        For v3: pass ``gt`` and ``challenge`` (both fetched from the
+        site's challenge endpoint just before solving). For v4: pass
+        ``gt`` as the captchaId and set ``version=4``.
+        """
+        task: dict[str, Any] = {
+            "type": "GeeTestTaskProxyless",
+            "websiteURL": page_url,
+            "gt": gt,
+            "challenge": challenge,
+            "version": version,
+        }
+        if api_server is not None:
+            task["geetestApiServerSubdomain"] = api_server
+        if init_parameters is not None:
+            task["initParameters"] = init_parameters
+        return await self._solve(task)
+
     async def _solve(self, task: dict[str, Any]) -> str:
         task_id = await self._create_task(task)
         loop = asyncio.get_running_loop()
