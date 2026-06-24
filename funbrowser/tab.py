@@ -16,6 +16,27 @@ if TYPE_CHECKING:
     from .browser import Browser
 
 
+def _is_navigation_race(details: dict[str, Any]) -> bool:
+    """True if ``exceptionDetails`` is a CDP synthetic "context destroyed"
+    rather than a real JS error.
+
+    When a page starts navigating while ``Runtime.evaluate`` is in flight,
+    Chrome destroys the execution context and CDP returns a stub with
+    ``text="Uncaught"`` and no real ``exception`` object (no objectId,
+    no className, no description). Real JS errors always carry a populated
+    ``exception`` object.
+    """
+    text = details.get("text", "")
+    exc = details.get("exception", {}) or {}
+    has_real_exception = bool(
+        exc.get("objectId")
+        or exc.get("className")
+        or exc.get("description")
+        or exc.get("value") is not None
+    )
+    return text in ("Uncaught", "") and not has_real_exception
+
+
 class Tab:
     """One browser tab, attached via a flat CDP session."""
 
@@ -133,7 +154,16 @@ class Tab:
             unsubscribe()
 
     async def evaluate(self, expression: str) -> Any:
-        """Run JS in the tab and return the result by value."""
+        """Run JS in the tab and return the result by value.
+
+        Navigation-race note: if the page starts navigating while this
+        call is in flight, Chrome destroys the execution context and CDP
+        returns a synthetic ``exceptionDetails`` with ``text="Uncaught"``
+        and no real exception object. That's not a script error — the JS
+        never ran — so we return ``None`` instead of raising. Callers
+        that need to distinguish should re-evaluate after the navigation
+        settles.
+        """
         result = await self._send(
             "Runtime.evaluate",
             {
@@ -144,6 +174,8 @@ class Tab:
         )
         if "exceptionDetails" in result:
             details = result["exceptionDetails"]
+            if _is_navigation_race(details):
+                return None
             raise RuntimeError(f"JS exception: {details.get('text', '')}")
         return result.get("result", {}).get("value")
 
@@ -159,7 +191,10 @@ class Tab:
             },
         )
         if "exceptionDetails" in result:
-            raise RuntimeError(f"JS exception: {result['exceptionDetails'].get('text', '')}")
+            details = result["exceptionDetails"]
+            if _is_navigation_race(details):
+                return None
+            raise RuntimeError(f"JS exception: {details.get('text', '')}")
         obj = result.get("result", {})
         if obj.get("subtype") == "null" or "objectId" not in obj:
             return None

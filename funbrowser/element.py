@@ -17,6 +17,20 @@ if TYPE_CHECKING:
     from .tab import Tab
 
 
+def _is_navigation_race(details: dict[str, Any]) -> bool:
+    """Mirror of :func:`funbrowser.tab._is_navigation_race`. Kept here
+    to avoid a circular import (element.py is imported by tab.py)."""
+    text = details.get("text", "")
+    exc = details.get("exception", {}) or {}
+    has_real_exception = bool(
+        exc.get("objectId")
+        or exc.get("className")
+        or exc.get("description")
+        or exc.get("value") is not None
+    )
+    return text in ("Uncaught", "") and not has_real_exception
+
+
 class ElementHandle:
     __slots__ = ("_object_id", "_tab")
 
@@ -45,7 +59,10 @@ class ElementHandle:
             "Runtime.callFunctionOn", params, session_id=self._tab.session_id
         )
         if "exceptionDetails" in result:
-            raise RuntimeError(f"JS exception: {result['exceptionDetails'].get('text', '')}")
+            details = result["exceptionDetails"]
+            if _is_navigation_race(details):
+                return None
+            raise RuntimeError(f"JS exception: {details.get('text', '')}")
         return result.get("result", {}).get("value")
 
     async def _call_objects(
@@ -66,7 +83,10 @@ class ElementHandle:
             "Runtime.callFunctionOn", params, session_id=self._tab.session_id
         )
         if "exceptionDetails" in result:
-            raise RuntimeError(f"JS exception: {result['exceptionDetails'].get('text', '')}")
+            details = result["exceptionDetails"]
+            if _is_navigation_race(details):
+                return []
+            raise RuntimeError(f"JS exception: {details.get('text', '')}")
         array_id = result.get("result", {}).get("objectId")
         if not array_id:
             return []

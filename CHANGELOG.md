@@ -89,6 +89,32 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.16.1] - 2026-06-24
+
+### Fixed
+
+- `Tab.evaluate` / `Tab.query` / `ElementHandle._call` no longer raise
+  `RuntimeError("JS exception: Uncaught")` when the page navigates while
+  the call is in flight. CDP returns a synthetic `exceptionDetails`
+  with `text="Uncaught"` and no real exception object in that case —
+  the JS never ran, the execution context was destroyed. Now we detect
+  this shape (no `objectId`/`className`/`description`/`value`) and
+  return `None`/`[]` instead of raising. Real JS errors still raise as
+  before because they always carry a populated `exception` object.
+- Concretely: this unblocks the polling pattern in
+  `helpers.google.login()` that does
+  `tab.evaluate("document.body.innerText || ''")` right after clicking
+  "Next" — the click can trigger a navigation that races the next
+  `evaluate`, and previously crashed the helper even when the login
+  itself had succeeded.
+
+### Tests
+
+- 9 new unit tests in `tests/test_navigation_race.py` covering the
+  detector: synthetic Uncaught with empty exception ⇒ race;
+  real ReferenceError / thrown string / thrown 0 / className-only /
+  description-only ⇒ not race. 197 tests total.
+
 ## [0.1.16] - 2026-06-24
 
 ### Fixed
