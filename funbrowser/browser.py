@@ -228,6 +228,40 @@ class Browser:
         await tab.goto(url, wait_until=wait_until)
         return tab
 
+    async def switch_tab(self, tab: Tab | int | str) -> Tab:
+        """Bring a tab to the foreground of the browser window and return it.
+
+        Tabs are always independently drivable by their :class:`Tab`
+        handle — you do **not** need to switch to a tab to type / click
+        / evaluate on it. This method is for the UI side: it sends
+        ``Target.activateTarget`` so the tab becomes the visible one
+        when you're running headful and watching the window.
+
+        ``tab`` may be:
+
+        - an existing :class:`Tab` instance you already hold
+        - an ``int`` — index into :attr:`tabs` (negatives count from the
+          end, ``-1`` is the most recently opened tab)
+        - a ``str`` — matched as a *substring* of each tab's current
+          URL; the first match wins. Handy for "switch to the gmail
+          one" without tracking handles.
+
+        Raises :class:`IndexError` for an out-of-range int and
+        :class:`LookupError` for a string that matches nothing.
+        """
+        resolved: Tab
+        if isinstance(tab, Tab):
+            resolved = tab
+        elif isinstance(tab, int):
+            resolved = self.tabs[tab]
+        else:
+            match = next((t for t in self.tabs if tab in t.url), None)
+            if match is None:
+                raise LookupError(f"No open tab matches URL substring {tab!r}")
+            resolved = match
+        await self._cdp.send("Target.activateTarget", {"targetId": resolved.target_id})
+        return resolved
+
     def _on_tab_closed(self, tab: Tab) -> None:
         self._tabs.pop(tab.target_id, None)
 

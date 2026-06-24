@@ -45,7 +45,7 @@ humanly = humanly_mod
 mail = mail_mod
 tls = tls_mod
 
-__version__ = "0.1.17"
+__version__ = "0.1.18"
 
 __all__ = [
     "Browser",

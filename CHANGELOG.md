@@ -89,6 +89,35 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.18] - 2026-06-24
+
+### Added
+
+- **`Browser.switch_tab(tab | int | str)`** — bring a tab to the
+  foreground of the browser window via `Target.activateTarget`.
+  Accepts an existing `Tab` handle, an index into `browser.tabs`
+  (negatives count from the end), or a URL substring (first match
+  wins). Tabs are always independently drivable — this is for the UI
+  side when running headful.
+- **`Profile.reset(name)`** — wipe + recreate a profile under the same
+  name. Returns the fresh path. Use when you want a clean session
+  (no leftover cookies, no Google-account chooser entry, no service
+  workers) without changing the profile name.
+- **`Profile.clear_tabs(name)`** — drop only Chrome's session-restore
+  state (`Current Tabs`, `Last Tabs`, `Current Session`,
+  `Last Session`, `Sessions/`) and patch `Preferences` so Chrome
+  opens NTP instead of restoring 50 old tabs. Keeps `Cookies`,
+  `Local Storage`, `Session Storage`, `IndexedDB` — auth survives.
+  Use between launches when a long-lived profile keeps reopening
+  every URL you've ever visited.
+
+### Tests
+
+- 1 integration test for `switch_tab` (all 4 call shapes + LookupError).
+- 5 unit tests for `Profile.reset` / `Profile.clear_tabs` covering
+  auth-side preservation, session-side wipe, Preferences rewrite, and
+  no-op behavior on missing or broken profiles.
+
 ## [0.1.17] - 2026-06-24
 
 ### Fixed

@@ -19,6 +19,7 @@ and Chrome will exit early.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -64,6 +65,95 @@ class Profile:
             return False
         shutil.rmtree(p, ignore_errors=True)
         return True
+
+    @staticmethod
+    def clear_tabs(name: str, *, root: Path | None = None) -> Path:
+        """Remove tab/session restore state without touching auth.
+
+        Chrome stores **two separate things** under a profile:
+
+        - Auth state: ``Cookies``, ``Local Storage/``, ``Session Storage/``,
+          ``IndexedDB/`` — these are what keeps you logged in.
+        - Tab/session restore: ``Current Tabs``, ``Last Tabs``,
+          ``Current Session``, ``Last Session``, ``Sessions/`` — these
+          are what makes Chrome reopen the 47 tabs you had last time.
+
+        :func:`Profile.reset` nukes everything. This method nukes only
+        the second category, so when you relaunch you get a single
+        new-tab page but you're still logged in everywhere. Also
+        rewrites ``Default/Preferences`` so Chrome won't show the
+        "Restore tabs?" prompt from a not-cleanly-closed session and
+        won't restore-on-startup.
+
+        Chrome must not be running against this directory when you call
+        this — kill the browser first.
+        """
+        p = Profile.path(name, root=root)
+        if not p.exists():
+            return p
+        default = p / "Default"
+        if not default.is_dir():
+            return p
+
+        # Session-restore files / dirs Chrome rebuilds on next launch.
+        for rel in (
+            "Current Tabs",
+            "Last Tabs",
+            "Current Session",
+            "Last Session",
+            "Sessions",
+        ):
+            target = default / rel
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.exists():
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+
+        # Patch Preferences so Chrome (a) doesn't show "Restore?" bubble
+        # from a SIGKILL'd previous session and (b) opens NTP on launch
+        # instead of restoring tabs.
+        prefs_file = default / "Preferences"
+        if prefs_file.is_file():
+            try:
+                prefs = json.loads(prefs_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                prefs = None
+            if isinstance(prefs, dict):
+                profile_prefs = prefs.setdefault("profile", {})
+                if isinstance(profile_prefs, dict):
+                    profile_prefs["exit_type"] = "Normal"
+                    profile_prefs["exited_cleanly"] = True
+                session_prefs = prefs.setdefault("session", {})
+                if isinstance(session_prefs, dict):
+                    session_prefs["restore_on_startup"] = 5  # NTP
+                try:
+                    prefs_file.write_text(json.dumps(prefs), encoding="utf-8")
+                except OSError:
+                    pass
+        return p
+
+    @staticmethod
+    def reset(name: str, *, root: Path | None = None) -> Path:
+        """Wipe and recreate the profile, returning the fresh path.
+
+        Equivalent to ``delete`` then ``ensure`` — use when you want a
+        clean session under the same name (no leftover cookies, no
+        remembered Google account on the chooser, no service workers).
+        Chrome must not be running against this directory when you call
+        this — kill the browser first.
+
+        ::
+
+            async with funbrowser.start(
+                user_data_dir=Profile.reset("alice"),
+            ) as browser:
+                ...  # logs in from a clean slate
+        """
+        Profile.delete(name, root=root)
+        return Profile.ensure(name, root=root)
 
     @staticmethod
     def list(*, root: Path | None = None) -> list[str]:

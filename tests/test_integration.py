@@ -38,3 +38,22 @@ async def test_query_selector_and_click() -> None:
         tab = await browser.get("https://example.com")
         assert await tab.exists("h1") is True
         assert await tab.exists("h2") is False
+
+
+async def test_switch_tab_accepts_index_handle_and_url_substring() -> None:
+    import pytest as _pytest
+
+    browser = await funbrowser.start(headless=True)
+    async with browser:
+        first = await browser.get("https://example.com")
+        second = await browser.get("https://example.org")
+        # by Tab handle — returns the same instance
+        assert await browser.switch_tab(first) is first
+        # by index — 0 is the first opened
+        assert await browser.switch_tab(0) is first
+        # by negative index — -1 is the most recent
+        assert await browser.switch_tab(-1) is second
+        # by URL substring
+        assert await browser.switch_tab("example.org") is second
+        with _pytest.raises(LookupError):
+            await browser.switch_tab("not-an-open-domain.invalid")
