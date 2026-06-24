@@ -335,6 +335,44 @@ class Tab:
         data = result.get("data", "")
         return base64.b64decode(data)
 
+    async def local_storage(self) -> dict[str, str]:
+        """Snapshot of ``window.localStorage`` for the current origin.
+
+        Only entries reachable via the standard ``localStorage`` API are
+        captured (i.e. for this tab's origin — Chrome partitions storage
+        by origin).
+        """
+        result = await self.evaluate("Object.fromEntries(Object.entries(localStorage))")
+        if not isinstance(result, dict):
+            return {}
+        return {str(k): str(v) for k, v in result.items()}
+
+    async def set_local_storage(
+        self,
+        items: dict[str, str],
+        *,
+        clear_first: bool = False,
+    ) -> None:
+        """Bulk-set ``localStorage`` keys on the current origin.
+
+        ``clear_first=True`` wipes existing keys before applying. The tab
+        must already be navigated to the target origin — Chrome refuses
+        ``localStorage`` writes for an origin you haven't loaded.
+        """
+        import json as _json
+
+        payload = _json.dumps(items)
+        clear = "localStorage.clear();" if clear_first else ""
+        await self.evaluate(
+            "(() => {"
+            f" const __items = {payload};"
+            f" {clear}"
+            " for (const [k, v] of Object.entries(__items))"
+            "   localStorage.setItem(k, v);"
+            " return true;"
+            "})()"
+        )
+
     async def close(self) -> None:
         if self._closed:
             return

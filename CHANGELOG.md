@@ -59,6 +59,36 @@ First public release. Everything below `Added` is what made the cut.
 - ruff + mypy strict clean
 - 17 commits on `main` from M0 → release
 
+## [0.1.1] - 2026-06-24
+
+### Added
+
+- `Browser.save_cookies(path)` / `load_cookies(path, clear_first=False)` —
+  one-line JSON file persistence for cookies. Returns the count.
+- `BrowserContext.save_cookies(path)` / `load_cookies(path)` — same shape,
+  context-scoped (no leakage between contexts).
+- `Tab.local_storage()` returns a `dict[str, str]` snapshot of the current
+  origin's `window.localStorage`.
+- `Tab.set_local_storage(items, clear_first=False)` bulk-applies entries
+  on the current origin.
+- `Browser.export_state(path)` / `import_state(path, navigate=True,
+  clear_first=False)` — full session snapshot (cookies + per-open-tab
+  localStorage). `navigate=True` (default) re-opens a tab on each saved
+  origin so localStorage can be restored (Chrome refuses to set
+  localStorage for an unloaded origin). Returns
+  `{"cookies": N, "origins": M}`.
+
+### Tests
+
+- 5 new round-trip tests in `tests/test_state_persist.py`:
+  save→file→assert, save→load→fresh-browser, localStorage snapshot,
+  full export→import with localStorage restoration, context-scoped
+  save/load isolation.
+
+### Example
+
+- `examples/save_session.py` walks save + restore in two browser processes.
+
 ## [Unreleased]
 
 ### Added

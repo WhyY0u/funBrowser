@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "funbrowser"
-version = "0.1.0"
+version = "0.1.1"
 description = "Undetect browser SDK for Python with built-in captcha solving via funsolver.com"
 readme = "README.md"
 license = "MIT"

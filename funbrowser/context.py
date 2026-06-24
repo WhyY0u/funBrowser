@@ -22,6 +22,7 @@ Trade-offs vs full :class:`Browser` per slot:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .proxy import Proxy
@@ -114,6 +115,29 @@ class BrowserContext:
             "Storage.clearCookies",
             {"browserContextId": self._context_id},
         )
+
+    async def save_cookies(self, path: str | Path) -> int:
+        """Dump this context's cookies to a JSON file. Returns the count saved."""
+        import asyncio
+        import json as _json
+
+        cookies = await self.cookies()
+        p = Path(path)
+        await asyncio.to_thread(p.write_text, _json.dumps(cookies, indent=2), encoding="utf-8")
+        return len(cookies)
+
+    async def load_cookies(self, path: str | Path, *, clear_first: bool = False) -> int:
+        """Load cookies from a JSON file. ``clear_first`` wipes existing."""
+        import asyncio
+        import json as _json
+
+        p = Path(path)
+        raw = await asyncio.to_thread(p.read_text, encoding="utf-8")
+        cookies = _json.loads(raw)
+        if clear_first:
+            await self.clear_cookies()
+        await self.set_cookies(cookies)
+        return len(cookies)
 
     async def close(self) -> None:
         """Close every tab in this context, then dispose the context itself."""

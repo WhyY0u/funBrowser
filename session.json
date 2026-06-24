@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "cookies": [
+    {
+      "name": "session",
+      "value": "saved-from-script",
+      "domain": "example.com",
+      "path": "/",
+      "expires": -1,
+      "size": 24,
+      "httpOnly": false,
+      "secure": false,
+      "session": true,
+      "priority": "Medium",
+      "sourceScheme": "NonSecure",
+      "sourcePort": 80
+    }
+  ],
+  "origins": [
+    {
+      "url": "https://example.com",
+      "local_storage": {
+        "auth_token": "ey...your.session"
+      }
+    }
+  ]
+}

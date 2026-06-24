@@ -246,6 +246,101 @@ class Browser:
         """Wipe every cookie. Useful between tests."""
         await self._cdp.send("Storage.clearCookies")
 
+    async def save_cookies(self, path: str | Path) -> int:
+        """Dump every cookie to a JSON file. Returns the count saved."""
+        import json as _json
+
+        cookies = await self.cookies()
+        p = Path(path)
+        await asyncio.to_thread(p.write_text, _json.dumps(cookies, indent=2), encoding="utf-8")
+        return len(cookies)
+
+    async def load_cookies(self, path: str | Path, *, clear_first: bool = False) -> int:
+        """Load cookies from a JSON file produced by :meth:`save_cookies`.
+
+        ``clear_first=True`` wipes existing cookies before applying. Returns
+        the count loaded.
+        """
+        import json as _json
+
+        p = Path(path)
+        raw = await asyncio.to_thread(p.read_text, encoding="utf-8")
+        cookies = _json.loads(raw)
+        if clear_first:
+            await self.clear_cookies()
+        await self.set_cookies(cookies)
+        return len(cookies)
+
+    async def export_state(self, path: str | Path) -> dict[str, int]:
+        """Snapshot cookies + per-open-tab localStorage to one JSON file.
+
+        Localstorage is collected per tab whose origin currently has a tab
+        open in this browser. Cookies are browser-wide. Returns
+        ``{"cookies": N, "origins": M}``.
+        """
+        import json as _json
+
+        cookies = await self.cookies()
+        origins: list[dict[str, Any]] = []
+        for tab in self.tabs:
+            try:
+                url = tab.url
+                if not url or url == "about:blank":
+                    continue
+                ls = await tab.local_storage()
+                if ls:
+                    origins.append({"url": url, "local_storage": ls})
+            except Exception:
+                pass
+
+        data = {"version": 1, "cookies": cookies, "origins": origins}
+        p = Path(path)
+        await asyncio.to_thread(p.write_text, _json.dumps(data, indent=2), encoding="utf-8")
+        return {"cookies": len(cookies), "origins": len(origins)}
+
+    async def import_state(
+        self,
+        path: str | Path,
+        *,
+        navigate: bool = True,
+        clear_first: bool = False,
+    ) -> dict[str, int]:
+        """Restore cookies + localStorage from a :meth:`export_state` file.
+
+        ``navigate=True`` (default) opens a tab on each saved origin and
+        re-applies its localStorage there — required because Chrome won't
+        let you write localStorage for an origin you haven't loaded.
+        Pass ``navigate=False`` for cookies-only restore.
+        Returns ``{"cookies": N, "origins": M}``.
+        """
+        import json as _json
+
+        p = Path(path)
+        raw = await asyncio.to_thread(p.read_text, encoding="utf-8")
+        data = _json.loads(raw)
+        cookies = data.get("cookies", [])
+        origins = data.get("origins", [])
+
+        if clear_first:
+            await self.clear_cookies()
+        await self.set_cookies(cookies)
+
+        applied = 0
+        if navigate:
+            for entry in origins:
+                url = entry.get("url")
+                ls = entry.get("local_storage") or {}
+                if not url or not ls:
+                    continue
+                try:
+                    tab = await self.new_tab(url=url)
+                    await tab.goto(url)
+                    await tab.set_local_storage(ls)
+                    applied += 1
+                except Exception:
+                    pass
+        return {"cookies": len(cookies), "origins": applied}
+
     async def stop(self) -> None:
         for tab in list(self._tabs.values()):
             try:
