@@ -1,330 +1,275 @@
 # FunBrowser
 
+[![PyPI - Version](https://img.shields.io/pypi/v/funbrowser)](https://pypi.org/project/funbrowser/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/funbrowser)](https://pypi.org/project/funbrowser/)
+[![License](https://img.shields.io/pypi/l/funbrowser)](https://github.com/WhyY0u/funBrowser/blob/main/LICENSE)
+
 **Undetect / anti-detect browser SDK for Python.** Drives real Chrome through
-the Chrome DevTools Protocol (CDP) with built-in stealth patches, customizable
-browser fingerprints (UA, GPU, screen, timezone, CPU cores, …), full proxy
-support (HTTP/HTTPS/SOCKS, every common string format), and automatic captcha
-solving for Cloudflare Turnstile, reCAPTCHA v2/v3, hCaptcha, FunCaptcha, and
-GeeTest through [funsolver.com](https://funsolver.com).
+the DevTools Protocol with built-in stealth patches, customisable browser
+fingerprints (UA, GPU, screen, timezone, CPU cores, …), full proxy support,
+human-like input timing, browser-pool / context-pool farming, an optional
+local web panel, and automatic captcha solving for **Cloudflare Turnstile**,
+**reCAPTCHA v2 / v3**, **hCaptcha**, **FunCaptcha**, and **GeeTest** through
+[funsolver.com](https://funsolver.com).
 
-Built for web scraping, browser automation, and bypassing anti-bot services
-(Cloudflare, DataDome, PerimeterX, Akamai Bot Manager) without the Selenium /
-Playwright leaks that get scripts flagged.
+Built for web scraping, browser automation, and bypassing antibot services
+(Cloudflare, DataDome, PerimeterX, Akamai) without the Selenium / Playwright
+leaks that get scripts flagged.
 
-> Pre-alpha. Not yet on PyPI — install from this repo.
+```bash
+pip install funbrowser              # core: stealth + automation + solver
+pip install funbrowser[panel]       # + local web panel for the pool
+pip install funbrowser[tls]         # + browser-grade TLS impersonation
+```
 
-## What it does
-
-- **Stealth out of the box** — strips `HeadlessChrome` from UA + Client Hints,
-  hides `navigator.webdriver`, fixes `chrome.runtime` / `plugins` / `languages`
-  / permissions tells, runs WebGL on the real GPU, adds 1-LSB noise to canvas
-  and audio readouts.
-- **Captcha auto-solve** — paste a `funsolver.com` API key and Turnstile /
-  reCAPTCHA / hCaptcha / FunCaptcha widgets get sniffed off the page, sent to
-  the solver, and the resulting token injected into the form for you.
-- **Fingerprint customization** — pick from preset configs (Windows + NVIDIA
-  RTX, macOS Apple Silicon, Linux Intel, …) or build a `Fingerprint(...)` with
-  arbitrary UA, GPU, screen, CPU, timezone, locale, languages.
-- **Proxy support, every format** — `host:port`, `host:port:user:pass`,
-  `user:pass@host:port`, `socks5://user:pass@host:port`, etc. — auto-detected
-  and parsed. HTTP/HTTPS auth handled via CDP.
-- **Persistent profiles** — `Profile.ensure("alice")` and cookies / localStorage
-  / login state survive between runs.
-- **Async Python SDK with auto-wait** — `await tab.fill("#email", "...")`,
-  `await tab.click("button")`, `await tab.text("#result")`. No raw evaluate
-  boilerplate, real `Input.dispatchMouseEvent` so `event.isTrusted == true`.
-- **Humanly mode** — opt-in cubic-Bezier mouse paths with ease-in-out timing,
-  randomised click hold, per-keystroke typing delays, sub-pixel target jitter.
-  Defeats trajectory-based bot detectors (humans don't teleport in straight
-  lines).
-- **WebRTC leak block** — strips `host` / `srflx` candidates from ICE so the
-  real IP doesn't bypass the proxy. Flag-level + JS-level belt-and-suspenders.
-- **toString camouflage** — `Object.getOwnPropertyDescriptor(navigator, 'webdriver').get.toString()`
-  reports `'function () { [native code] }'`, defeating the classic stealth-
-  detection probe most antibots run.
-- **Proxy → geo auto-coupling** — looks up the exit IP through the proxy
-  (ip-api.com) and fills `timezone` / `locale` / `Accept-Language` on the
-  active fingerprint. US proxy → US timezone, no manual config.
-- **Raw CDP over WebSocket** — no Selenium, no Playwright, no chromedriver. The
-  protocol tells antibot servers use to flag automation aren't on the wire.
-
-## Use cases
-
-- Web scraping behind Cloudflare / DataDome / PerimeterX / Akamai
-- Automating multi-account workflows (one persistent profile per account)
-- Filling forms and clicking through captcha-gated flows
-- Headless data extraction with realistic browser fingerprints
-- Replacement for `puppeteer-extra-stealth`, `undetected-chromedriver`,
-  `selenium-stealth`, or `playwright-stealth` patterns — in Python, async,
-  with a built-in solver instead of bring-your-own-API.
-
-## Compared to other stealth options
-
-| | FunBrowser | puppeteer-stealth / undetected-chromedriver | Camoufox / Chromium fork |
-|---|---|---|---|
-| Stealth patches | runtime + GPU | runtime | C++-level (deeper) |
-| Real GPU fingerprint | yes (`--use-gl=angle`) | optional | yes |
-| Built-in captcha solver | **yes (funsolver.com)** | bring your own | bring your own |
-| Fingerprint presets + custom | yes | partial | yes |
-| Python async SDK | yes | Node.js / Python | both |
-| Setup | `pip install` | `pip install` | bundled fork |
-| Detection ceiling | Cloudflare standard, DataDome basic | similar | top-tier Kasada / DataDome heavy |
-
-## Today (M1 + M2 shipped)
+## Quick start
 
 ```python
 import asyncio
 import funbrowser
 
 async def main():
-    # stealth=True by default — strips HeadlessChrome UA, hides
-    # navigator.webdriver, populates plugins/languages/chrome.runtime,
-    # uses real GPU for WebGL, adds canvas/audio noise.
     async with await funbrowser.start(headless=True) as browser:
         tab = await browser.get("https://example.com")
+        print(await tab.evaluate("document.title"))
+        # → Example Domain
         print(await tab.evaluate("navigator.userAgent"))
-        # Mozilla/5.0 ... Chrome/149.0.0.0 ...   (no "HeadlessChrome")
+        # → Mozilla/5.0 ... Chrome/... — no "HeadlessChrome"
 
 asyncio.run(main())
 ```
 
-Probe yourself:
-
-```bash
-uv run python examples/stealth_check.py
-uv run python examples/stealth_check.py https://bot.sannysoft.com/
+```python
+# Full automation: stealth + proxy + auto-solve captchas + humanly input
+async with await funbrowser.start(
+    headless=True,
+    proxy="user:pass@us-1.proxy.io:8080",     # any common format works
+    api_key="fs_xxx",                         # funsolver.com key
+    humanly=True,                             # Bezier mouse + typing rhythm
+    fingerprint=funbrowser.presets.windows_11_nvidia_rtx_4070(),
+) as browser:
+    tab = await browser.get("https://target-with-captcha.com")
+    # captchas auto-solve in the background
+    await tab.fill("#email", "alice@example.com")
+    await tab.click("button[type=submit]")
 ```
 
-## Browser farm (M5.6)
+## Features
+
+### Stealth (passes 25/25 standard antidetect probes)
+
+- `navigator.webdriver` → undefined, **with native `toString` camouflage**
+- UA + Client Hints with `HeadlessChrome` stripped
+- `chrome.runtime`, `plugins`, `languages`, permissions consistency
+- **Real GPU** for WebGL (`--use-gl=angle`, not SwiftShader)
+- Canvas + audio readout noise to break fingerprint tracking
+- WebRTC IP leak blocked (flag-level + SDP filter)
+- iframe stealth propagation
+- Geo auto-couples timezone + locale to proxy exit IP
+
+```bash
+uv run python examples/detect_check.py      # self-audit
+```
+
+### Fingerprint customisation
+
+17 ready presets (Windows × NVIDIA / Intel / AMD, macOS Apple Silicon /
+Intel, Linux, plus 4 Android mobile) + arbitrary custom `Fingerprint(...)`.
 
 ```python
-from funbrowser import BrowserPool
+from funbrowser import Fingerprint, presets
 
-async def scrape(browser):
-    tab = await browser.get("https://example.com")
-    return await tab.evaluate("document.title")
+fp = presets.macos_apple_silicon_m3_pro().merge(
+    Fingerprint(timezone="Asia/Tokyo", languages=("ja-JP", "ja", "en"))
+)
+async with await funbrowser.start(fingerprint=fp) as browser:
+    ...
+```
 
-# Fleet of 5 browsers, each on a different proxy + auto-coupled timezone.
+### Humanly mode (Bezier-curve mouse + typing rhythm)
+
+```python
+async with await funbrowser.start(humanly=True) as browser:
+    await tab.click("button")        # cursor curves toward target
+    await tab.type("#email", "ada")  # per-keystroke random delay
+```
+
+Presets: `humanly.FAST`, `humanly.DEFAULT`, `humanly.CAREFUL`, plus arbitrary
+custom `HumanBehavior(...)`.
+
+### Captcha auto-solve
+
+Paste a [funsolver.com](https://funsolver.com) API key. Five captcha
+families detected on-page and solved automatically:
+
+| | API method | Page integration |
+|---|---|---|
+| Cloudflare Turnstile | `solve_turnstile` | `.cf-turnstile` widgets |
+| reCAPTCHA v2 (+ Enterprise) | `solve_recaptcha_v2` | `.g-recaptcha` widgets |
+| reCAPTCHA v3 (+ Enterprise) | `solve_recaptcha_v3` | hooks `grecaptcha.execute()` |
+| hCaptcha | `solve_hcaptcha` | `.h-captcha` widgets |
+| FunCaptcha / Arkose | `solve_funcaptcha` | `[data-pkey]` elements |
+| GeeTest v3 + v4 | `solve_geetest` | hooks `initGeetest` / `initGeetest4` |
+
+### Proxies (every format)
+
+`host:port`, `host:port:user:pass`, `user:pass@host:port`, `host:port@user:pass`,
+`socks5://...`, `chrome` URL form — all auto-parsed. HTTP/HTTPS auth flows
+through CDP automatically.
+
+### Persistent profiles
+
+```python
+from funbrowser import Profile
+
+alice = Profile.ensure("alice")   # ./funbrowser_profiles/alice
+async with await funbrowser.start(user_data_dir=alice) as browser:
+    # cookies + localStorage + login state persist between runs
+    ...
+```
+
+### Browser farming — `BrowserPool` and `ContextPool`
+
+```python
+from funbrowser import BrowserPool, ContextPool
+
+# Process pool — full Chrome per slot (max isolation)
 async with BrowserPool(
     size=5,
+    proxies=["proxy1:8080", "proxy2:8080", "proxy3:8080"],
     headless=True,
-    proxies=[
-        "user:pass@us-1.proxy.io:8080",
-        "user:pass@us-2.proxy.io:8080",
-        "user:pass@gb-1.proxy.io:8080",
-        "user:pass@de-1.proxy.io:8080",
-        "user:pass@jp-1.proxy.io:8080",
-    ],
+    mini=True,
 ) as pool:
-    # 50 scrapes through 5 browsers — pool queues 10 per browser.
-    results = await pool.run_all([scrape] * 50)
+    async def scrape(browser):
+        tab = await browser.get("https://example.com")
+        return await tab.evaluate("document.title")
+
+    results = await pool.run_all([scrape] * 100)
+
+# Context pool — 1 Chrome + N isolated contexts (~7-10x less RAM)
+async with ContextPool(size=10, headless=True, mini=True) as pool:
+    async def scrape(ctx):
+        tab = await ctx.get("https://example.com")
+        return await tab.evaluate("document.title")
+
+    results = await pool.run_all([scrape] * 100)
 ```
 
-`pool.acquire()` is the lower-level checkout API if you need it. `pool.size /
-.created / .idle / .busy / .browsers` for introspection.
+Memory comparison on the same 10-slot workload:
+- `BrowserPool(size=10)` → ~1.0 GB
+- `ContextPool(size=10)` → ~260 MB (one Chrome + 10 contexts)
 
-## Local web panel (M5.7)
+### `mini=True` mode
 
-A built-in dashboard for inspecting and controlling a `BrowserPool`. Install
-with the `panel` extra (pulls in `aiohttp`):
+Curated set of Chrome flags that cut RAM / CPU / disk per browser
+(~50% lower RSS): site isolation off, background throttling, audio
+muted, extensions / sync / translate disabled, small disk caches,
+V8 heap cap. Combines with stealth — does **not** turn off the real
+GPU. Works on `Browser`, `BrowserPool`, and `ContextPool` alike.
 
-```bash
-pip install funbrowser[panel]
+### TLS fingerprint impersonation (`pip install funbrowser[tls]`)
+
+Script-level HTTP that picks JA3/JA4 from real-browser profiles:
+
+```python
+from funbrowser.tls import ImpersonatedHTTPClient
+
+async with ImpersonatedHTTPClient(profile="chrome131") as http:
+    r = await http.get("https://protected-api.com/endpoint")
 ```
+
+23 supported profiles: `chrome99..chrome133a`, `safari15..safari18`,
+`firefox133/135`, Android variants. See
+[docs/M10_M11_DESIGN.md](docs/M10_M11_DESIGN.md) for the deeper
+browser-traffic mitm proxy roadmap.
+
+### Local web panel (`pip install funbrowser[panel]`)
 
 ```python
 from funbrowser import BrowserPool, Panel
 
-async with BrowserPool(size=3) as pool:
+async with BrowserPool(size=5) as pool:
     async with Panel(pool) as panel:
         print(panel.url)   # http://127.0.0.1:8765
         await long_running_task()
 ```
 
-The dashboard shows pool size / busy / idle, lists every browser with its
-proxy and geo and fingerprint, displays current tab URLs, lets you navigate
-any browser to a URL or grab a screenshot. Auto-refreshes every 1.5s. The
-panel is opt-in — if you don't `pip install funbrowser[panel]`, importing
-`Panel` is a no-op and your code stays dependency-light.
+Black-and-white dashboard with: pool stats, FunSolver balance, browser
+fleet table (proxy / geo / fingerprint / open tabs / per-row goto +
+screenshot), activity log (panel actions + per-browser captcha solves),
+quick actions, and a **script runner** — upload an `async def
+main(browser)` script and run it on one browser or fan it out across
+the whole pool, with per-run stdout / return / traceback captured.
 
-## Custom fingerprint (M2.5)
+## Documentation
 
-Pick a preset or build your own — the SDK plumbs the values into UA + Client
-Hints + navigator + screen + WebGL.
+- [docs/stealth.md](docs/stealth.md) — anti-detect coverage in depth
+- [docs/captchas.md](docs/captchas.md) — solver integration guide
+- [docs/farming.md](docs/farming.md) — `BrowserPool` vs `ContextPool`
+- [docs/panel.md](docs/panel.md) — the local web dashboard
+- [docs/M10_M11_DESIGN.md](docs/M10_M11_DESIGN.md) — TLS + engine-layer roadmap
+- [examples/](examples/) — runnable demos for every feature
 
-```python
-from funbrowser import Fingerprint, presets
+## Self-audit
 
-# Preset
-fp = presets.windows_11_amd_radeon_6700_xt()
-
-# Preset + custom overrides
-fp = presets.macos_apple_silicon_m3_pro().merge(
-    Fingerprint(timezone="Asia/Tokyo", languages=("ja-JP", "ja", "en"))
-)
-
-# Fully custom
-fp = Fingerprint(
-    user_agent="Mozilla/5.0 ... Chrome/130.0.0.0 ...",
-    hardware_concurrency=16,
-    device_memory=8,
-    webgl_vendor="Google Inc. (NVIDIA)",
-    webgl_renderer="ANGLE (NVIDIA, NVIDIA GeForce RTX 3060, D3D11)",
-)
-
-async with await funbrowser.start(fingerprint=fp) as browser:
-    tab = await browser.get("https://example.com")
+```bash
+uv run python examples/detect_check.py
 ```
 
-Available presets: see `funbrowser.presets.ALL`. Filter with
-`presets.filter_by_tag("windows")` / `("macos")` / `("high-end")` / etc.
-
-Note on WebGL spoofing: overriding `webgl_vendor` + `webgl_renderer` only
-changes the strings `getParameter()` returns. The rendered pixel output
-still comes from the real GPU underneath, so top-tier antibots can still
-catch the mismatch by comparing the claimed renderer to the actual pixels.
-Full shader-level spoofing is M9.
-
-## Proxies (M5)
-
-Pass any common proxy-string format — the parser auto-detects layout.
-
-```python
-# All of these work:
-funbrowser.start(proxy="1.2.3.4:8080")
-funbrowser.start(proxy="http://1.2.3.4:8080")
-funbrowser.start(proxy="user:pass@1.2.3.4:8080")
-funbrowser.start(proxy="1.2.3.4:8080:user:pass")    # IPRoyal / Smartproxy lists
-funbrowser.start(proxy="user:pass:1.2.3.4:8080")    # legacy listings
-funbrowser.start(proxy="1.2.3.4:8080@user:pass")
-funbrowser.start(proxy="socks5://user:pass@1.2.3.4:1080")
 ```
+[navigator.* basics]              9/9   PASS
+[chrome runtime + iframe]         6/6   PASS
+[stealth-detection probes]        5/5   PASS
+[WebGL / canvas / audio]          4/4   PASS
+[WebRTC IP leak]                  1/1   PASS
 
-HTTP/HTTPS auth flows through CDP automatically. SOCKS auth needs an
-upstream HTTP wrapper (Chrome doesn't expose SOCKS auth via DevTools).
-
-## Persistent profiles (M5)
-
-```python
-from funbrowser import Profile
-
-alice = Profile.ensure("alice")     # ./funbrowser_profiles/alice
-async with await funbrowser.start(user_data_dir=alice) as browser:
-    # cookies, localStorage, IndexedDB, login state persist between runs
-    ...
-```
-
-`FUNBROWSER_PROFILES` env var changes the root.
-
-## Humanly mode (M5.5+)
-
-```python
-from funbrowser import humanly  # presets: humanly.FAST / .DEFAULT / .CAREFUL
-
-# Bool shortcut — uses the default profile.
-async with await funbrowser.start(humanly=True) as browser:
-    tab = await browser.get(URL)
-    await tab.click("button")     # cursor curves toward the target
-    await tab.type("#email", "ada@lovelace.dev")  # random per-keystroke gap
-
-# Pick a tuned preset.
-async with await funbrowser.start(humanly=humanly.CAREFUL) as browser:
-    ...
-
-# Or build your own.
-from funbrowser import HumanBehavior
-fp = HumanBehavior(
-    move_duration_ms_min=400, move_duration_ms_max=900,
-    click_hold_ms_min=80, click_hold_ms_max=180,
-    type_delay_ms_min=120, type_delay_ms_max=300,
-    target_jitter_px=4.0,
-)
-async with await funbrowser.start(humanly=fp) as browser:
-    ...
-```
-
-Each click emits 15–70 intermediate `mouseMoved` events tracing a randomised
-cubic-Bezier curve with ease-in-out timing instead of a single teleport. The
-button-press holds for a random duration before release. Typing pauses
-randomly between characters. Targets are hit with a few pixels of jitter
-from the centre. None of this is visible at the DOM level — but all of it is
-what modern antibots score against bot fingerprints.
-
-## Ergonomics (M5.5)
-
-```python
-async with await funbrowser.start() as browser:
-    tab = await browser.get("https://example.com")
-
-    # Auto-wait built in — no separate wait_for needed
-    await tab.fill("#email", "ada@lovelace.dev")
-    await tab.type("#name", "Ada")           # real keystrokes
-    await tab.click("button[type=submit]")    # event.isTrusted == true
-
-    # Read straight from selectors
-    msg = await tab.text("#result")
-    is_open = await tab.exists(".error-banner")
-
-    # ElementHandle — reuse one reference
-    btn = await tab.find("#delayed-btn", timeout=5)
-    print(await btn.attribute("data-id"))
-    await btn.click()
-
-    # Cut bandwidth / speed up loads
-    await tab.block_urls(["*google-analytics.com*", "*.png"])
-
-    # Cookies are browser-wide
-    await browser.set_cookies([{"name": "session", "value": "abc", "domain": "example.com", "path": "/"}])
-    print(await browser.cookies())
-```
-
-## Auto-solve captchas (M3 — Cloudflare Turnstile today, the rest in M4)
-
-```python
-async with await funbrowser.start(api_key="fs_xxx") as browser:
-    tab = await browser.get("https://site-with-turnstile.com")
-    # detector spots the .cf-turnstile widget, sends sitekey + URL to
-    # funsolver.com, drops the token into the response field and fires
-    # the page's success callback — all without your code doing anything.
-    await tab.click("button[type=submit]")
+score:     25/25  (100%)
 ```
 
 ## Roadmap
 
-See `CHANGELOG.md` for what's landed.
-
-| | Milestone | Status | Notes |
-|---|---|---|---|
-| M0 | Bootstrap | done | |
-| M1 | CDP core + Tab API | done | raw CDP, no Selenium/Playwright |
-| M2 | Stealth Tier 1 + 2 | done | basic markers + real GPU + canvas/audio noise |
-| M3 | Solver bridge + Turnstile | done | |
-| M4 | reCAPTCHA / hCaptcha / FunCaptcha / GeeTest | pending | |
-| M5 | Production hardening | done | proxies, profiles, real input events, retries, multi-tab |
-| M5.5 | DX Tier S | done | wait_for + ElementHandle + auto-wait + cookies + block_urls |
-| M6 | **v0.1 release** | pending | PyPI, docs |
-| M7 | Fingerprint consistency (Tier 3) | post-v0.1 | Client Hints + tz + screen + fonts coherent across layers |
-| M8 | Real fingerprint pool (Tier 4) | post-v0.1 | bundled DB of real-user fingerprints, per-profile rotation |
-| M9 | Deep WebGL/canvas/shader spoofing | post-v0.1 | substitute real GPU-rendered pixels so output matches claimed renderer |
-| M10 | TLS JA3/JA4 fingerprint | post-v0.1 | mitm with curl_cffi/utls, or BoringSSL patch in M11 |
-| M11 | Browser fork | post-v0.1 | Camoufox or ungoogled-chromium with C++ stealth patches |
-| M12 | Tauri UI for manual mode | post-v0.1 | desktop app with tabs/address bar/settings |
-| M5.6 | DX Tier A | post-v0.1 | intercept, fetch-from-page, screenshot+, scroll, upload, export_state, mobile preset |
-| M5.7 | DX Tier B | post-v0.1 | pdf, CLI tool, shortcut props, pretty logging, popups, solver shortcuts |
-| M5.8 | DX Tier C | post-v0.1 | HAR export, detection_score, switch_proxy, async-for network listener |
+| | Milestone | Status |
+|---|---|---|
+| M0 | Bootstrap | done |
+| M1 | CDP core + Tab API | done |
+| M2 | Stealth Tier 1 + 2 | done |
+| M2.5 | Fingerprint customisation | done |
+| M3 | Solver bridge + Turnstile | done |
+| M4 | reCAPTCHA / hCaptcha / FunCaptcha / GeeTest | done |
+| M5 | Production hardening (proxies, profiles, retries, multi-tab) | done |
+| M5.5 | DX Tier S (auto-wait + ElementHandle + cookies + block_urls) | done |
+| M5.5+ | Humanly mode | done |
+| M5.5++ | WebRTC + toString camouflage + geo auto-couple | done |
+| M5.5+++ | Mobile presets + expanded catalog | done |
+| M5.6 | BrowserPool | done |
+| M5.7 | Web Panel (+ FunSolver balance + per-browser logs + scripts) | done |
+| M5.8 | Mini mode | done |
+| M6 | **v0.1 release** | **in progress** |
+| M10a | TLS HTTP client (curl_cffi) | done |
+| M11-alt | ContextPool (lightweight pool) | done |
+| M7 | Fingerprint consistency (Tier 3) | post-v0.1 |
+| M8 | Real fingerprint pool (Tier 4) | post-v0.1 |
+| M9 | Deep WebGL / canvas / shader spoofing | post-v0.1 |
+| M10b | mitm proxy for Chrome traffic (production-grade) | post-v0.1 |
+| M11 | Browser fork (Camoufox / Chromium) | post-v0.1 |
+| M12 | Tauri UI for manual mode | post-v0.1 |
 
 ## Development
 
 Uses [uv](https://docs.astral.sh/uv/) for env + deps.
 
 ```bash
-uv sync
-uv run ruff check .
-uv run ruff format --check .
+uv sync                              # install
+uv run pytest -q                     # full test suite (173 tests)
+uv run ruff check . && uv run ruff format --check .
 uv run mypy funbrowser
-uv run pytest -v
+uv run python examples/detect_check.py
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues + PRs welcome.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).

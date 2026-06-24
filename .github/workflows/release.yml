@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # for GitHub Release upload
+  id-token: write   # for PyPI Trusted Publishing
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/funbrowser/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Verify version matches tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG=$(uv run python -c "import funbrowser; print(funbrowser.__version__)")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag $TAG != package version $PKG" >&2
+            exit 1
+          fi
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      - name: Publish to PyPI (Trusted Publishing)
+        # Uses OIDC — no PYPI_API_TOKEN required, configured once on PyPI
+        # under "Trusted publishers" for this repo + workflow.
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Attach artefacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz

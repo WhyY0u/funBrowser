@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "funbrowser"
-version = "0.0.1"
-description = "Undetect browser with built-in captcha solving via funsolver.com"
+version = "0.1.0"
+description = "Undetect browser SDK for Python with built-in captcha solving via funsolver.com"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -49,16 +49,22 @@ keywords = [
     "python",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
     "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
     "Typing :: Typed",
 ]
 dependencies = [
@@ -78,7 +84,11 @@ tls = [
 
 [project.urls]
 Homepage = "https://github.com/WhyY0u/funBrowser"
+Documentation = "https://github.com/WhyY0u/funBrowser#readme"
+Repository = "https://github.com/WhyY0u/funBrowser"
 Issues = "https://github.com/WhyY0u/funBrowser/issues"
+Changelog = "https://github.com/WhyY0u/funBrowser/blob/main/CHANGELOG.md"
+"FunSolver API" = "https://funsolver.com"
 
 [dependency-groups]
 dev = [
@@ -95,9 +105,15 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["funbrowser"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"funbrowser/stealth/scripts" = "funbrowser/stealth/scripts"
-"funbrowser/solver/scripts" = "funbrowser/solver/scripts"
+[tool.hatch.build]
+# Hatchling defaults pick up *.py only — we ship JS patches in
+# funbrowser/stealth/scripts/ and funbrowser/solver/scripts/, so list
+# them explicitly. force-include caused double-inclusion of __init__.py.
+include = [
+    "funbrowser/**/*.py",
+    "funbrowser/**/*.js",
+    "funbrowser/py.typed",
+]
 
 [tool.ruff]
 target-version = "py311"

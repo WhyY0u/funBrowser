@@ -3,6 +3,62 @@
 All notable changes to FunBrowser will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.0] - 2026-06-24
+
+First public release. Everything below `Added` is what made the cut.
+
+### Highlights
+
+- **Stealth**: 25/25 standard antidetect probes pass (UA, navigator.*,
+  chrome.runtime, plugins, languages, permissions, real-GPU WebGL,
+  canvas + audio noise, WebRTC IP leak block, toString camouflage,
+  iframe propagation).
+- **Captcha auto-solve**: Cloudflare Turnstile, reCAPTCHA v2 / v3
+  (+ Enterprise), hCaptcha, FunCaptcha / Arkose, GeeTest v3 + v4 —
+  all via `funsolver.com`.
+- **Fingerprint customisation**: 17 presets (Windows × NVIDIA / Intel /
+  AMD, macOS × Apple Silicon / Intel, Linux, 4 Android mobile) plus
+  arbitrary `Fingerprint(...)`. Proxy ↔ geo auto-coupling fills
+  timezone / locale / accept_language from the exit IP.
+- **Humanly mode**: Bezier-curve mouse paths with ease-in-out timing,
+  randomised click hold, per-keystroke typing rhythm, sub-pixel target
+  jitter.
+- **Proxies**: every format under the sun — `host:port`,
+  `user:pass@host:port`, `host:port:user:pass`, `socks5://...`.
+  HTTP/HTTPS auth via CDP.
+- **Pools**:
+  - `BrowserPool` — full Chrome per slot, max isolation
+  - `ContextPool` — one Chrome + N isolated contexts, ~7-10x less RAM
+- **`mini=True`** mode — Chrome flags that cut ~50% RAM per browser.
+- **Web Panel** (`pip install funbrowser[panel]`) — black-and-white
+  dashboard with pool stats, FunSolver balance, browser fleet, per-row
+  goto + screenshot, activity log merging panel actions + per-browser
+  captcha solves, quick actions, and an inline async script runner.
+- **TLS impersonation** (`pip install funbrowser[tls]`) —
+  `ImpersonatedHTTPClient` lets script-side HTTP calls use real
+  browser JA3/JA4 (23 profiles: chrome99..chrome133a, safari15..18,
+  firefox133/135).
+- **DX Tier S**: `ElementHandle`, `tab.find(selector, timeout)`,
+  `tab.type / fill / text / attribute / click / hover`, real
+  `Input.dispatchMouseEvent` with auto-wait baked in,
+  `tab.block_urls`, `browser.cookies / set_cookies / clear_cookies`.
+
+### Out of scope for v0.1 — see roadmap
+
+- **M10b**: production-grade mitm proxy for spoofing Chrome's own TLS
+  (alpha scaffold ships in `funbrowser.tls.mitm`, HTTP/2 + WebSocket
+  bridging TODO — sized at 3-5 days of work)
+- **M11**: C++-level patches via Camoufox integration or own Chromium
+  fork (1-2 weeks for Camoufox, months for fork)
+- **M7-M9**: Tier 3+ fingerprint work (cross-layer consistency, real
+  user fingerprint pool, pixel-level WebGL spoofing)
+
+### Counts at release
+
+- 173 tests, all green
+- ruff + mypy strict clean
+- 17 commits on `main` from M0 → release
+
 ## [Unreleased]
 
 ### Added
