@@ -89,6 +89,51 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.15] - 2026-06-24
+
+### Added — automation helpers
+
+- **`funbrowser.IMAPMail`** — async IMAP client (stdlib `imaplib` wrapped in
+  `asyncio.to_thread`). `await mailbox.wait_for_code(sender_contains=...,
+  subject_contains=..., pattern=r"\b(\d{6})\b", timeout=120)` polls the
+  mailbox for *new* messages matching the filters and returns the first
+  regex capture group — the canonical "wait for the 6-digit verification
+  code" loop, no third-party dep. Also `list_recent(limit=...)` and
+  `fetch(uid)` for full message dumps. Multipart bodies are flattened to
+  plain text (text/plain preferred, text/html stripped as fallback).
+  Works with Gmail / iCloud (app-password required), Outlook, FastMail,
+  any standard IMAP host. Connect via `async with`.
+- **`funbrowser.MailMessage`** — dataclass returned by `list_recent` /
+  `fetch`: `uid, sender, subject, body, date`.
+- **`funbrowser.helpers.google.login(browser_or_tab, *, email, password,
+  totp_secret=None, timeout=60)`** — best-effort sign-in flow against
+  `accounts.google.com`. Returns `{"ok": bool, "url": str,
+  "challenge": str | None}`. Handles email/password screens; if
+  `totp_secret` provided and `[automation]` extra is installed, types the
+  current TOTP on the 2FA screen. Disclaimed as fragile (Google rotates
+  selectors and risk-checks aggressively) — the return dict reports
+  where the flow stalled so callers can intervene.
+- **`funbrowser.helpers.totp.now(secret)`** — thin wrapper over `pyotp`;
+  strips whitespace + uppercases the secret. `helpers.totp.available()`
+  reports whether the `[automation]` extra is installed.
+
+### Optional extra
+
+- **`pip install funbrowser[automation]`** adds `pyotp>=2.9` for TOTP code
+  generation. IMAP itself needs no extra (stdlib).
+
+### Tests
+
+- 10 new tests: 6 in `tests/test_mail.py` (stubbed IMAP backend covering
+  body extraction, capture-group code parsing, sender-filter, timeout,
+  list_recent ordering), 4 in `tests/test_helpers_totp.py` (pyotp
+  matching, whitespace-strip, 6-digit shape). 188 tests total.
+
+### Example
+
+- `examples/gmail_and_codes.py` — Google login → IMAPMail code wait
+  → fill on target site.
+
 ## [Unreleased]
 
 ### Added

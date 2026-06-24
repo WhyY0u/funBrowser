@@ -492,7 +492,7 @@ wheels = [
 
 [[package]]
 name = "funbrowser"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -500,6 +500,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+automation = [
+    { name = "pyotp" },
+]
 panel = [
     { name = "aiohttp" },
 ]
@@ -514,6 +517,7 @@ dev = [
     { name = "cryptography" },
     { name = "curl-cffi" },
     { name = "mypy" },
+    { name = "pyotp" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -525,9 +529,10 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'tls'", specifier = ">=42" },
     { name = "curl-cffi", marker = "extra == 'tls'", specifier = ">=0.7" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "pyotp", marker = "extra == 'automation'", specifier = ">=2.9" },
     { name = "websockets", specifier = ">=12.0" },
 ]
-provides-extras = ["panel", "tls"]
+provides-extras = ["panel", "tls", "automation"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -535,6 +540,7 @@ dev = [
     { name = "cryptography", specifier = ">=42" },
     { name = "curl-cffi", specifier = ">=0.7" },
     { name = "mypy", specifier = ">=1.10" },
+    { name = "pyotp", specifier = ">=2.9" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "ruff", specifier = ">=0.6" },
@@ -1020,6 +1026,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
+]
+
+[[package]]
+name = "pyotp"
+version = "2.10.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/c6/c5d96a86fd0bf6fa1bbb5c5c341ff3208638b692727a683c8289068d9a11/pyotp-2.10.0.tar.gz", hash = "sha256:d01e9703443616b03c57c700b5cbffd56a1f929c1b0f8f03131bc78c1fca9d3f", size = 18625, upload-time = "2026-06-14T03:48:49.221Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/33/7b83bde70eddaaaaef487751a9c3a5cc0c0be54620ded0e120ebdc401ff9/pyotp-2.10.0-py3-none-any.whl", hash = "sha256:1df2f6a1bcc3bb0716172a5215ddc2f8c7c7fd26a13df9927d52e1746934836c", size = 13768, upload-time = "2026-06-14T03:48:47.831Z" },
 ]
 
 [[package]]

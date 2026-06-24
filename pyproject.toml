@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "funbrowser"
-version = "0.1.1"
+version = "0.1.15"
 description = "Undetect browser SDK for Python with built-in captcha solving via funsolver.com"
 readme = "README.md"
 license = "MIT"
@@ -81,6 +81,11 @@ tls = [
     "curl_cffi>=0.7",
     "cryptography>=42",
 ]
+# TOTP code generation for site logins with 2FA. Install with:
+# pip install funbrowser[automation]
+automation = [
+    "pyotp>=2.9",
+]
 
 [project.urls]
 Homepage = "https://github.com/WhyY0u/funBrowser"
@@ -100,6 +105,7 @@ dev = [
     "aiohttp>=3.9",
     "curl_cffi>=0.7",
     "cryptography>=42",
+    "pyotp>=2.9",
 ]
 
 [tool.hatch.build.targets.wheel]
