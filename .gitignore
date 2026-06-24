@@ -39,6 +39,8 @@ profiles/
 # Example artifacts
 example.png
 examples/*.png
+session.json
+examples/session.json
 # Secrets: never commit API keys
 .env
 .env.local
