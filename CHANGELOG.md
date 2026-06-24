@@ -89,31 +89,30 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
-## [0.1.16.1] - 2026-06-24
+## [0.1.17] - 2026-06-24
 
 ### Fixed
 
-- `Tab.evaluate` / `Tab.query` / `ElementHandle._call` no longer raise
-  `RuntimeError("JS exception: Uncaught")` when the page navigates while
-  the call is in flight. CDP returns a synthetic `exceptionDetails`
-  with `text="Uncaught"` and no real exception object in that case —
-  the JS never ran, the execution context was destroyed. Now we detect
-  this shape (no `objectId`/`className`/`description`/`value`) and
-  return `None`/`[]` instead of raising. Real JS errors still raise as
-  before because they always carry a populated `exception` object.
-- Concretely: this unblocks the polling pattern in
-  `helpers.google.login()` that does
-  `tab.evaluate("document.body.innerText || ''")` right after clicking
-  "Next" — the click can trigger a navigation that races the next
-  `evaluate`, and previously crashed the helper even when the login
-  itself had succeeded.
+- **Navigation-race false positive in `Tab.evaluate` / `Tab.query`.** CDP
+  returns a synthetic `exceptionDetails` with `text="Uncaught"` and no
+  real exception object when the execution context is destroyed
+  mid-evaluate (page started navigating). Previously this raised
+  `RuntimeError("JS exception: Uncaught")`. Now `_is_navigation_race`
+  detects the shape (no `objectId` / `className` / `description` /
+  `value`) and returns `None` / `[]` instead. Real JS errors still raise
+  as before. Unblocks the polling pattern in `helpers.google.login()`.
+- **Google login: account-chooser page handled.** When the Chrome
+  profile has any previously-used Google account, Google shows a
+  "Choose an account" screen with that account + a "Use another
+  account" entry instead of the identifier input. The helper now
+  detects this (URL contains `accountchooser` or `[jsname="rwl3qc"]`
+  present) and clicks through to the email input.
 
 ### Tests
 
 - 9 new unit tests in `tests/test_navigation_race.py` covering the
-  detector: synthetic Uncaught with empty exception ⇒ race;
-  real ReferenceError / thrown string / thrown 0 / className-only /
-  description-only ⇒ not race. 197 tests total.
+  detector across real JS errors, thrown strings, thrown 0, synthetic
+  Uncaught, etc. 197 tests total.
 
 ## [0.1.16] - 2026-06-24
 

@@ -91,6 +91,33 @@ async def login(
         timeout=timeout,
     )
 
+    # ── account chooser (optional first page) ────────────────────────
+    # If the browser profile has any previously-used Google account,
+    # Google shows a "Choose an account" screen with that account + a
+    # "Use another account" entry instead of the identifier input. We
+    # detect by URL fragment + DOM marker and click through.
+    await asyncio.sleep(0.5)
+    if "accountchooser" in tab.url.lower() or await tab.exists('[jsname="rwl3qc"]'):
+        clicked = False
+        for sel in (
+            '[jsname="rwl3qc"]',
+            '[data-button-type="addAccount"]',
+            'div[role="link"][data-authuser="-1"]',
+        ):
+            try:
+                await tab.click(sel, timeout=4.0)
+                clicked = True
+                break
+            except Exception:
+                continue
+        if not clicked:
+            return {
+                "ok": False,
+                "url": tab.url,
+                "challenge": "account-chooser-stuck",
+            }
+        await asyncio.sleep(1.5)
+
     # ── email ─────────────────────────────────────────────────────────
     # Google's email input is `<input type="text" id="identifierId"
     # name="identifier">` — NOT type=email. Selectors are listed by
