@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from .browser import Browser
 
 
+_UNSET: Any = object()
+
+
 def _is_navigation_race(details: dict[str, Any]) -> bool:
     """True if ``exceptionDetails`` is a CDP synthetic "context destroyed"
     rather than a real JS error.
@@ -153,7 +156,7 @@ class Tab:
         finally:
             unsubscribe()
 
-    async def evaluate(self, expression: str) -> Any:
+    async def evaluate(self, expression: str, *, default: Any = _UNSET) -> Any:
         """Run JS in the tab and return the result by value.
 
         Navigation-race note: if the page starts navigating while this
@@ -163,6 +166,16 @@ class Tab:
         never ran — so we return ``None`` instead of raising. Callers
         that need to distinguish should re-evaluate after the navigation
         settles.
+
+        Pass ``default=<value>`` to also swallow **real** JS exceptions
+        (e.g. ``document.body.innerText`` while the page is still
+        loading and ``document.body`` is null) and return that default
+        instead of raising. Without ``default``, real JS errors still
+        raise ``RuntimeError`` so bugs in your expression are visible.
+
+        ::
+
+            text = await tab.evaluate("document.body.innerText", default="")
         """
         result = await self._send(
             "Runtime.evaluate",
@@ -175,7 +188,9 @@ class Tab:
         if "exceptionDetails" in result:
             details = result["exceptionDetails"]
             if _is_navigation_race(details):
-                return None
+                return None if default is _UNSET else default
+            if default is not _UNSET:
+                return default
             raise RuntimeError(f"JS exception: {details.get('text', '')}")
         return result.get("result", {}).get("value")
 

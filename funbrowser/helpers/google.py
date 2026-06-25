@@ -169,7 +169,7 @@ async def login(
             return {"ok": True, "url": url, "challenge": None}
 
         # Try to detect text-based rejection.
-        body_text = (await tab.evaluate("document.body.innerText || ''") or "").lower()
+        body_text = (await tab.evaluate("document.body.innerText", default="") or "").lower()
         for needle in _PASSWORD_REJECTED_FRAGMENTS:
             if needle in body_text:
                 return {"ok": False, "url": url, "challenge": "wrong-password"}
@@ -198,6 +198,149 @@ async def login(
     verified = await _verify_logged_in(tab)
     if verified:
         return {"ok": True, "url": tab.url, "challenge": None}
+    return {"ok": False, "url": tab.url, "challenge": last_challenge or "timeout"}
+
+
+async def continue_signin(
+    browser_or_tab: Browser | Tab,
+    *,
+    email: str,
+    password: str,
+    totp_secret: str | None = None,
+    timeout: float = 60.0,
+) -> dict[str, Any]:
+    """Complete an in-progress "Sign in with Google" OAuth flow.
+
+    Use this when a **third-party site** (Autodesk, Notion, Figma, any
+    OAuth client) has already redirected the tab to ``accounts.google.com``
+    after the user clicked "Sign in with Google". The helper drives
+    whatever Google screen is currently visible — account chooser,
+    email input, password input, 2FA — and returns when Google
+    redirects back to the client app.
+
+    Same return shape as :func:`login`:
+    ``{"ok": bool, "url": str, "challenge": str | None}``. ``ok=True``
+    means we left ``accounts.google.com`` (= the OAuth flow completed
+    and the client got its callback). Doesn't navigate anywhere itself.
+
+    ::
+
+        tab = await browser.get("https://example.com")
+        await tab.click("button.sign-in-with-google")
+        # tab is now on accounts.google.com OAuth flow
+        result = await helpers.google.continue_signin(
+            tab, email="alice@gmail.com", password="...",
+        )
+    """
+    tab = await _resolve_tab(browser_or_tab)
+    await asyncio.sleep(0.8)
+
+    if "accounts.google.com" not in tab.url.lower():
+        return {
+            "ok": False,
+            "url": tab.url,
+            "challenge": "not-on-google-signin-page",
+        }
+
+    # ── account chooser ──────────────────────────────────────────────
+    # If a tile for our email is on screen, click it directly (Google
+    # will go straight to the password page). Otherwise click "Use
+    # another account" and fall through to the email input below.
+    if await tab.exists('[jsname="rwl3qc"]'):
+        existing_tile = f'[data-identifier="{email}"]'
+        clicked_tile = False
+        try:
+            await tab.click(existing_tile, timeout=3.0)
+            clicked_tile = True
+        except Exception:
+            pass
+        if not clicked_tile:
+            try:
+                await tab.click('[jsname="rwl3qc"]', timeout=4.0)
+            except Exception:
+                return {
+                    "ok": False,
+                    "url": tab.url,
+                    "challenge": "account-chooser-stuck",
+                }
+        await asyncio.sleep(1.5)
+
+    # ── email step (skipped if we clicked the existing tile) ─────────
+    if await tab.exists("#identifierId") or await tab.exists('input[name="identifier"]'):
+        email_filled = False
+        for sel in (
+            "#identifierId",
+            'input[name="identifier"]',
+            'input[aria-label*="Email" i]',
+        ):
+            try:
+                await tab.fill(sel, email, timeout=8.0)
+                email_filled = True
+                break
+            except Exception:
+                continue
+        if not email_filled:
+            return {"ok": False, "url": tab.url, "challenge": "email-input-not-found"}
+        try:
+            await tab.click("#identifierNext", timeout=4.0)
+        except Exception:
+            pass
+        await asyncio.sleep(1.5)
+
+    # ── password step ────────────────────────────────────────────────
+    pwd_sel = None
+    for sel in (
+        'input[type="password"]',
+        'input[name="Passwd"]',
+        'input[aria-label*="password" i]',
+    ):
+        try:
+            await tab.find(sel, timeout=timeout / 4)
+            pwd_sel = sel
+            break
+        except TimeoutError:
+            continue
+    if pwd_sel is None:
+        # Possibly already redirected back to the client (silent SSO).
+        if "accounts.google.com" not in tab.url.lower():
+            return {"ok": True, "url": tab.url, "challenge": None}
+        return {"ok": False, "url": tab.url, "challenge": "password-page-never-appeared"}
+    await asyncio.sleep(0.8)
+    await tab.fill(pwd_sel, password, timeout=timeout)
+    try:
+        await tab.click("#passwordNext", timeout=4.0)
+    except Exception:
+        pass
+
+    # ── wait for redirect away from accounts.google.com ──────────────
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    last_challenge: str | None = None
+
+    while loop.time() < deadline:
+        await asyncio.sleep(1.0)
+        url = tab.url
+        if "accounts.google.com" not in url.lower():
+            return {"ok": True, "url": url, "challenge": None}
+
+        body_text = (await tab.evaluate("document.body.innerText", default="") or "").lower()
+        for needle in _PASSWORD_REJECTED_FRAGMENTS:
+            if needle in body_text:
+                return {"ok": False, "url": url, "challenge": "wrong-password"}
+
+        if any(p.search(url) for p in _CHALLENGE_PATTERNS):
+            if totp_secret and _totp.available():
+                if await _try_totp(tab, totp_secret):
+                    last_challenge = "totp-submitted"
+                    continue
+                last_challenge = "totp-failed"
+            else:
+                last_challenge = "totp_missing"
+            if "recovery" in url.lower() or "recovery" in body_text:
+                return {"ok": False, "url": url, "challenge": "recovery"}
+            if "tap" in body_text and "phone" in body_text:
+                return {"ok": False, "url": url, "challenge": "phone-prompt"}
+
     return {"ok": False, "url": tab.url, "challenge": last_challenge or "timeout"}
 
 

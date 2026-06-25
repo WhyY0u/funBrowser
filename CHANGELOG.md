@@ -89,6 +89,37 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.19] - 2026-06-26
+
+### Added
+
+- **`funbrowser.helpers.google.continue_signin(tab_or_browser, *, email,
+  password, totp_secret=None, timeout=60)`** — completes an in-progress
+  "Sign in with Google" OAuth flow on a third-party site. Walks
+  whichever Google screen is currently visible (account chooser, email,
+  password, 2FA) and returns when Google redirects back to the client
+  app. Use after clicking a third-party site's "Sign in with Google"
+  button — unlike `login()`, this does NOT navigate to
+  accounts.google.com itself. Same return shape as `login()`.
+  Detects existing accounts: clicks the `[data-identifier=<email>]`
+  tile if present (skipping the email step), otherwise clicks "Use
+  another account".
+- **`Tab.evaluate(expression, *, default=...)`** — pass a `default`
+  value to swallow real JS exceptions (not just navigation races) and
+  return that default instead of raising `RuntimeError`. Without
+  `default`, real JS errors still raise so bugs in your expression are
+  visible. Fix for the "`document.body.innerText` while page is loading
+  → null deref → crash" pattern:
+  `await tab.evaluate("document.body.innerText", default="")`.
+- **`Browser.get_tabs()`** — method alias for the `tabs` property,
+  because some users instinctively reach for a method.
+
+### Internal
+
+- `helpers.google.login` and `helpers.google.continue_signin` now use
+  `default=""` on their innerText polls — no more spurious crashes when
+  the polling loop races a Google redirect mid-load.
+
 ## [0.1.18] - 2026-06-24
 
 ### Added

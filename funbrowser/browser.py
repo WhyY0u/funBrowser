@@ -210,6 +210,11 @@ class Browser:
     def tabs(self) -> list[Tab]:
         return list(self._tabs.values())
 
+    def get_tabs(self) -> list[Tab]:
+        """Same as the ``tabs`` property — provided because some users
+        instinctively reach for a method instead of a property."""
+        return self.tabs
+
     async def new_tab(self, url: str = "about:blank") -> Tab:
         res = await self._cdp.send("Target.createTarget", {"url": url})
         target_id = res["targetId"]
