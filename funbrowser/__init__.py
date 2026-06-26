@@ -45,7 +45,7 @@ humanly = humanly_mod
 mail = mail_mod
 tls = tls_mod
 
-__version__ = "0.1.22"
+__version__ = "0.1.23"
 
 __all__ = [
     "Browser",
@@ -142,6 +142,7 @@ def start(
     geo_autoconfigure: bool = True,
     humanly: bool | HumanBehavior = False,
     mini: bool = False,
+    nano: bool = False,
     api_key: str | None = None,
     auto_solve: bool = True,
     solver_base_url: str | None = None,
@@ -184,6 +185,7 @@ def start(
         geo_autoconfigure=geo_autoconfigure,
         humanly=humanly,
         mini=mini,
+        nano=nano,
         api_key=api_key,
         auto_solve=auto_solve,
         solver_base_url=solver_base_url,

@@ -89,6 +89,23 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.23] - 2026-06-26
+
+### Added
+
+- **`nano=True`** mode on `funbrowser.start(...)` — an opt-in extra
+  layer on top of `mini=True` that pushes a single browser instance to
+  its practical floor on Windows. Measured **458 MB RSS / 7 processes**
+  vs 511 MB / 9 (`mini=True`) vs 603 MB / 11 (default). Adds three
+  Chrome flags: `--in-process-gpu` (~-40 MB, collapses the GPU process
+  into the browser process; real-GPU WebGL fingerprint still works),
+  `--renderer-process-limit=1` (~-20 MB, all tabs share one renderer
+  — disables site isolation, fine for the 1-browser-per-account farm
+  pattern), plus an extended `--disable-features=` that turns off the
+  rest of Chrome's phone-home surface (Translate, MediaRouter, Privacy
+  Sandbox / Topics, optimisation hints, autofill server, certificate
+  transparency component updater). `nano=True` implies `mini=True`.
+
 ## [0.1.22] - 2026-06-26
 
 ### Fixed

@@ -57,6 +57,43 @@ def mini_flags() -> list[str]:
     ]
 
 
+def nano_flags() -> list[str]:
+    """Aggressive footprint cuts to layer on top of :func:`mini_flags`.
+
+    Designed to push a single browser instance to its practical floor
+    on Windows (~455 MB RSS, 7 processes) without breaking stealth or
+    site loading. Three things:
+
+    - ``--in-process-gpu`` — GPU code runs inside the browser process
+      instead of a dedicated GPU process. Saves ~40 MB. The real-GPU
+      WebGL fingerprint still works because GPU is not disabled, just
+      moved in-process.
+    - ``--renderer-process-limit=1`` — all tabs share one renderer.
+      Saves another ~20 MB. **Disables site isolation** — fine for the
+      typical farm pattern (1 browser = 1 account = 1 site) but unsafe
+      if you mix unrelated origins in the same instance.
+    - Extended ``--disable-features=`` that turns off the rest of
+      Chrome's "phone home" surface (Translate, MediaRouter, the
+      Privacy Sandbox / Topics API, optimisation hints, autofill
+      server, certificate transparency component updater, etc.).
+      Cheap, harmless, removes background work you don't want anyway.
+
+    Pair with ``mini=True`` (or ``nano=True`` on :func:`Browser.start`
+    implies it). On its own this list does not provide the cache /
+    background / V8-heap tuning of mini_flags.
+    """
+    return [
+        "--in-process-gpu",
+        "--renderer-process-limit=1",
+        "--disable-features="
+        "Translate,MediaRouter,OptimizationHints,AcceptCHFrame,"
+        "AutofillServerCommunication,CertificateTransparencyComponentUpdater,"
+        "OptimizationHintsFetching,OptimizationTargetPrediction,"
+        "InterestCohortAPI,PrivacySandboxSettings4,ImprovedCookieControls,"
+        "LazyFrameLoading",
+    ]
+
+
 def merge_flags(*flag_lists: list[str]) -> list[str]:
     """Combine flag lists, unioning multi-value flags and deduplicating others.
 

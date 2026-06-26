@@ -13,7 +13,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Self
 
 from ._cdp import CDPConnection
-from ._flags import merge_flags, mini_flags
+from ._flags import merge_flags, mini_flags, nano_flags
 from ._launcher import LaunchedBrowser, launch_chrome
 from .fingerprint import Fingerprint
 from .geo import GeoInfo, lookup_proxy_geo
@@ -141,6 +141,7 @@ class Browser:
         geo_autoconfigure: bool = True,
         humanly: bool | HumanBehavior = False,
         mini: bool = False,
+        nano: bool = False,
         api_key: str | None = None,
         auto_solve: bool = True,
         solver_base_url: str | None = None,
@@ -149,8 +150,13 @@ class Browser:
         parts: list[list[str]] = []
         if stealth:
             parts.append(stealth_flags())
-        if mini:
+        # nano implies mini — it's an additional layer of cuts that
+        # only makes sense if mini's cache / V8 / background tweaks are
+        # already applied.
+        if mini or nano:
             parts.append(mini_flags())
+        if nano:
+            parts.append(nano_flags())
 
         proxy_obj: Proxy | None = None
         if proxy is not None:
