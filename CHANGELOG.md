@@ -89,6 +89,40 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.25] - 2026-06-26
+
+### Added
+
+- **`tab.route(url_pattern, handler)` — Playwright-style request
+  interception.** The handler receives a `Route` and decides the
+  request's fate via one of:
+  - `route.continue_(*, url=None, method=None, headers=None, post_data=None)`
+    — pass through, optionally rewriting any field
+  - `route.abort(error_reason="Failed")` — cancel with a CDP error
+    (`BlockedByClient`, `ConnectionReset`, etc.)
+  - `route.fulfill(*, status=200, body=b"", headers=None, content_type=None)`
+    — return a synthetic response without hitting the network. Mock
+    SDK endpoints, replay solver tokens, short-circuit trackers.
+
+  Routes are stackable (call `route()` many times — they fire in
+  registration order; first to resolve wins) and compose cleanly with
+  `block_urls` (blocks run first). The returned unsubscribe callable
+  removes that single route. `block_urls` internals were refactored
+  to share a single `Fetch.enable` with `route()` — API unchanged.
+
+- **`tab.on_request(handler)` / `tab.wait_for_request(url_or_predicate)`
+  and `funbrowser.Request`** — symmetric counterparts to the response
+  observation API added in v0.1.24. `Request` carries `.url`,
+  `.method`, `.headers`, `.post_data`, `.resource_type`, and
+  `.is_navigation`. Wraps `Network.requestWillBeSent`. Pure
+  observation — for intercept, use `route()`.
+
+  Together with the v0.1.24 response API, this covers the
+  DataDome-solver shape (snoop a specific XHR, read body, feed it to
+  a solver) plus mock-and-replay flows (intercept the SDK's token
+  endpoint, fulfill with a pre-computed token) without dropping to
+  raw CDP or injecting a JS shim.
+
 ## [0.1.24] - 2026-06-26
 
 ### Added

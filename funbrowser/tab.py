@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import fnmatch
 import json as _json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
@@ -18,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 ResponseHandler = Callable[["Response"], Union[Awaitable[None], None]]
 ResponsePredicate = Callable[["Response"], bool]
+RequestHandler = Callable[["Request"], Union[Awaitable[None], None]]
+RequestPredicate = Callable[["Request"], bool]
+RouteHandler = Callable[["Route"], Union[Awaitable[None], None]]
+# Fetch dispatcher returns True if it handled the paused request
+# (called continueRequest / failRequest / fulfillRequest), False to pass.
+_FetchDispatcher = Callable[[dict[str, Any]], Awaitable[bool]]
 
 if TYPE_CHECKING:
     from .browser import Browser
@@ -60,6 +67,15 @@ class Tab:
         self._blocked_patterns: list[str] = []
         self._block_unsub: Any = None
         self._network_enabled = False
+        # Shared Fetch.enable infrastructure used by block_urls + route().
+        # _fetch_patterns is the union of all patterns currently registered
+        # with Chrome; _fetch_dispatchers is the chain that decides what to
+        # do with each paused request (block, route, or pass through).
+        self._fetch_enabled = False
+        self._fetch_patterns: list[dict[str, Any]] = []
+        self._fetch_dispatchers: list[_FetchDispatcher] = []
+        self._fetch_unsub: Any = None
+        self._route_entries: list[tuple[str, RouteHandler]] = []
         # cursor + humanly profile carried from Browser
         self._cursor: tuple[float, float] | None = None
         self._humanly: HumanBehavior | None = browser._humanly
@@ -343,44 +359,189 @@ class Tab:
         cuts ad/tracking calls and image bandwidth — common 2-5x speedup on
         ad-heavy pages.
 
-        Implementation note: this re-enables ``Fetch`` with the new pattern
-        set, replacing any prior ``Fetch`` config. If proxy-auth was wired in
-        on this tab, call :meth:`block_urls` first and then proxy-auth will
-        be lost — file an issue if you hit this; composing both is M5.6 work.
+        Composes with :meth:`route` — both share a single underlying
+        ``Fetch.enable`` and a dispatch chain. The block layer runs
+        before route handlers, so a blocked URL is killed before any
+        route gets to see it. Calling ``block_urls`` again replaces
+        the block pattern set (not additive); route handlers stay.
         """
-        if not patterns:
-            await self.unblock_urls()
-            return
-        fetch_patterns = [{"urlPattern": p, "requestStage": "Request"} for p in patterns]
-        await self._send("Fetch.enable", {"patterns": fetch_patterns})
-
-        sub = self._block_unsub
-        if sub is not None:
-            sub()
+        # Drop any old block dispatcher (block_urls is a "set", not "add").
+        self._fetch_dispatchers = [
+            d for d in self._fetch_dispatchers
+            if getattr(d, "_kind", None) != "block"
+        ]
         self._blocked_patterns = list(patterns)
 
-        async def _on_paused(params: dict[str, Any]) -> None:
+        if not patterns and not self._route_entries:
+            # Nothing left to do — tear down Fetch entirely.
+            await self._fetch_disable_if_idle()
+            return
+
+        if patterns:
+            async def _block_dispatcher(params: dict[str, Any]) -> bool:
+                url = params.get("request", {}).get("url", "")
+                for p in self._blocked_patterns:
+                    if fnmatch.fnmatchcase(url, p):
+                        try:
+                            await self._cdp.send(
+                                "Fetch.failRequest",
+                                {
+                                    "requestId": params["requestId"],
+                                    "errorReason": "BlockedByClient",
+                                },
+                                session_id=self._session_id,
+                            )
+                        except Exception:
+                            pass
+                        return True
+                return False
+
+            _block_dispatcher._kind = "block"  # type: ignore[attr-defined]
+            # Block runs FIRST so it can short-circuit before routes.
+            self._fetch_dispatchers.insert(0, _block_dispatcher)
+
+        await self._fetch_sync_patterns()
+
+    async def unblock_urls(self) -> None:
+        self._blocked_patterns = []
+        self._fetch_dispatchers = [
+            d for d in self._fetch_dispatchers
+            if getattr(d, "_kind", None) != "block"
+        ]
+        if not self._route_entries:
+            await self._fetch_disable_if_idle()
+        else:
+            await self._fetch_sync_patterns()
+
+    async def route(
+        self,
+        url_pattern: str,
+        handler: RouteHandler,
+    ) -> Callable[[], None]:
+        """Intercept requests matching ``url_pattern`` and decide their fate.
+
+        The handler receives a :class:`Route` and must call exactly one of
+        ``route.continue_()``, ``route.abort()``, or ``route.fulfill(...)``
+        — otherwise the request hangs until Chrome times it out. If the
+        handler raises, the request is auto-continued so the page doesn't
+        wedge.
+
+        ``url_pattern`` uses Chrome's URL-pattern syntax (``*`` matches
+        anything). Routes are stackable: register many; they fire in
+        registration order; the first whose URL matches AND whose handler
+        resolves the request wins. Routes compose with :meth:`block_urls`
+        — blocks run first.
+
+        Returns an unsubscribe callable. Calling it removes only this
+        route; other routes and any block patterns stay in place.
+
+        ::
+
+            async def _mock_captcha(route):
+                if route.request.method == "POST":
+                    await route.fulfill(
+                        status=200,
+                        body=b'{"token":"fake"}',
+                        content_type="application/json",
+                    )
+                else:
+                    await route.continue_()
+
+            unsub = await tab.route("*captcha*", _mock_captcha)
+            ...
+            unsub()
+        """
+        entry = (url_pattern, handler)
+        self._route_entries.append(entry)
+
+        async def _route_dispatcher(params: dict[str, Any]) -> bool:
+            url = params.get("request", {}).get("url", "")
+            if not fnmatch.fnmatchcase(url, url_pattern):
+                return False
+            request = _request_from_paused(self, params)
+            route_obj = Route(self, str(params.get("requestId", "")), request)
             try:
-                await self._cdp.send(
-                    "Fetch.failRequest",
-                    {
-                        "requestId": params["requestId"],
-                        "errorReason": "BlockedByClient",
-                    },
-                    session_id=self._session_id,
-                )
+                result = handler(route_obj)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                logger.exception("route handler raised for %s", url)
+                if not route_obj._resolved:
+                    # Don't strand the request — fall through to auto-continue.
+                    return False
+            return route_obj._resolved
+
+        _route_dispatcher._kind = "route"  # type: ignore[attr-defined]
+        _route_dispatcher._entry = entry  # type: ignore[attr-defined]
+        self._fetch_dispatchers.append(_route_dispatcher)
+
+        await self._fetch_sync_patterns()
+
+        def _unsub() -> None:
+            try:
+                self._route_entries.remove(entry)
+            except ValueError:
+                pass
+            self._fetch_dispatchers = [
+                d for d in self._fetch_dispatchers
+                if getattr(d, "_entry", None) is not entry
+            ]
+            # Best-effort resync — the user may not be in an async context here.
+            asyncio.ensure_future(self._fetch_resync_after_unroute())
+
+        return _unsub
+
+    async def _fetch_resync_after_unroute(self) -> None:
+        if not self._route_entries and not self._blocked_patterns:
+            await self._fetch_disable_if_idle()
+        else:
+            try:
+                await self._fetch_sync_patterns()
             except Exception:
                 pass
 
-        self._block_unsub = self._cdp.on(
-            "Fetch.requestPaused", _on_paused, session_id=self._session_id
-        )
+    async def _fetch_sync_patterns(self) -> None:
+        """Re-call ``Fetch.enable`` with the union of all active patterns."""
+        patterns: list[dict[str, Any]] = []
+        for p in self._blocked_patterns:
+            patterns.append({"urlPattern": p, "requestStage": "Request"})
+        for url_pat, _ in self._route_entries:
+            patterns.append({"urlPattern": url_pat, "requestStage": "Request"})
+        self._fetch_patterns = patterns
 
-    async def unblock_urls(self) -> None:
-        if self._block_unsub is not None:
-            self._block_unsub()
-            self._block_unsub = None
-        self._blocked_patterns = []
+        await self._send("Fetch.enable", {"patterns": patterns})
+        self._fetch_enabled = True
+
+        if self._fetch_unsub is None:
+            async def _on_paused(params: dict[str, Any]) -> None:
+                for d in list(self._fetch_dispatchers):
+                    try:
+                        if await d(params):
+                            return
+                    except Exception:
+                        logger.exception("fetch dispatcher raised")
+                # No dispatcher claimed the request — pass it through.
+                try:
+                    await self._cdp.send(
+                        "Fetch.continueRequest",
+                        {"requestId": params["requestId"]},
+                        session_id=self._session_id,
+                    )
+                except Exception:
+                    pass
+
+            self._fetch_unsub = self._cdp.on(
+                "Fetch.requestPaused", _on_paused, session_id=self._session_id
+            )
+
+    async def _fetch_disable_if_idle(self) -> None:
+        if not self._fetch_enabled:
+            return
+        if self._fetch_unsub is not None:
+            self._fetch_unsub()
+            self._fetch_unsub = None
+        self._fetch_enabled = False
+        self._fetch_patterns = []
         try:
             await self._send("Fetch.disable")
         except Exception:
@@ -391,6 +552,77 @@ class Tab:
             return
         await self._send("Network.enable")
         self._network_enabled = True
+
+    async def on_request(self, handler: RequestHandler) -> Callable[[], None]:
+        """Register a callback for every HTTP request on this tab.
+
+        Mirrors :meth:`on_response`. Handler receives a :class:`Request`
+        for each ``Network.requestWillBeSent`` event. Both sync and
+        async handlers are accepted. Returns an unsubscribe callable.
+
+        For pure observation. To intercept and modify / abort / fulfill
+        a request, use :meth:`route` — it gives you a :class:`Route`
+        with full control.
+        """
+        await self._ensure_network_enabled()
+
+        async def _on_event(params: dict[str, Any]) -> None:
+            req = _request_from_will_be_sent(self, params)
+            if req is None:
+                return
+            try:
+                result = handler(req)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                logger.exception("on_request handler raised for %s", req.url)
+
+        return self._cdp.on(
+            "Network.requestWillBeSent", _on_event, session_id=self._session_id
+        )
+
+    async def wait_for_request(
+        self,
+        url_or_predicate: str | RequestPredicate,
+        *,
+        timeout: float = 30.0,
+    ) -> Request:
+        """Wait for the first request matching a URL substring or predicate.
+
+        Mirrors :meth:`wait_for_response`. Raises :class:`asyncio.TimeoutError`
+        if no match arrives in ``timeout`` seconds.
+        """
+        await self._ensure_network_enabled()
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Request] = loop.create_future()
+
+        _matches: RequestPredicate
+        if isinstance(url_or_predicate, str):
+            needle = url_or_predicate
+            _matches = lambda r: needle in r.url  # noqa: E731
+        else:
+            _matches = url_or_predicate
+
+        def _on_event(params: dict[str, Any]) -> None:
+            if fut.done():
+                return
+            req = _request_from_will_be_sent(self, params)
+            if req is None:
+                return
+            try:
+                if _matches(req):
+                    fut.set_result(req)
+            except Exception:
+                logger.exception("wait_for_request predicate raised for %s", req.url)
+
+        unsub = self._cdp.on(
+            "Network.requestWillBeSent", _on_event, session_id=self._session_id
+        )
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            unsub()
 
     async def on_response(self, handler: ResponseHandler) -> Callable[[], None]:
         """Register a callback for every HTTP response on this tab.
@@ -641,3 +873,201 @@ def _response_from_event(tab: Tab, params: dict[str, Any]) -> Response | None:
         status=int(resp_data.get("status", 0) or 0),
         headers=headers,
     )
+
+
+class Request:
+    """Snapshot of an HTTP request seen on this tab.
+
+    Yielded by :meth:`Tab.on_request`, :meth:`Tab.wait_for_request`,
+    and as the ``.request`` attribute of :class:`Route`. The fields
+    captured here mirror what Chrome reports on
+    ``Network.requestWillBeSent`` (or ``Fetch.requestPaused`` for
+    routed requests):
+
+    - ``url``, ``method``, ``headers`` — request line + headers
+    - ``post_data`` — request body if present, otherwise ``None``.
+      Truncated by Chrome for large bodies; treat as a preview.
+    - ``resource_type`` — Chrome's classification (``Document``,
+      ``XHR``, ``Fetch``, ``Image``, ``Script``, ``Stylesheet``, ...)
+    - ``is_navigation`` — True for the top-level navigation request
+    """
+
+    __slots__ = ("_tab", "_request_id", "url", "method", "headers",
+                 "post_data", "resource_type", "is_navigation")
+
+    def __init__(
+        self,
+        tab: Tab,
+        request_id: str,
+        url: str,
+        method: str,
+        headers: dict[str, str],
+        post_data: str | None = None,
+        resource_type: str = "",
+        is_navigation: bool = False,
+    ) -> None:
+        self._tab = tab
+        self._request_id = request_id
+        self.url = url
+        self.method = method
+        self.headers = headers
+        self.post_data = post_data
+        self.resource_type = resource_type
+        self.is_navigation = is_navigation
+
+    def __repr__(self) -> str:
+        return f"<Request {self.method} {self.url!r}>"
+
+
+def _request_from_will_be_sent(tab: Tab, params: dict[str, Any]) -> Request | None:
+    """Build a Request from a ``Network.requestWillBeSent`` event payload."""
+    req_data = params.get("request")
+    if not isinstance(req_data, dict):
+        return None
+    headers_in = req_data.get("headers") or {}
+    headers: dict[str, str] = {}
+    if isinstance(headers_in, dict):
+        for k, v in headers_in.items():
+            headers[str(k)] = str(v)
+    post_data = req_data.get("postData")
+    return Request(
+        tab=tab,
+        request_id=str(params.get("requestId", "")),
+        url=str(req_data.get("url", "")),
+        method=str(req_data.get("method", "GET")),
+        headers=headers,
+        post_data=str(post_data) if post_data is not None else None,
+        resource_type=str(params.get("type", "")),
+        is_navigation=bool(params.get("requestId") == params.get("loaderId")),
+    )
+
+
+def _request_from_paused(tab: Tab, params: dict[str, Any]) -> Request:
+    """Build a Request from a ``Fetch.requestPaused`` event payload."""
+    req_data = params.get("request") or {}
+    headers_in = req_data.get("headers") or {}
+    headers: dict[str, str] = {}
+    if isinstance(headers_in, dict):
+        for k, v in headers_in.items():
+            headers[str(k)] = str(v)
+    post_data = req_data.get("postData")
+    return Request(
+        tab=tab,
+        request_id=str(params.get("requestId", "")),
+        url=str(req_data.get("url", "")),
+        method=str(req_data.get("method", "GET")),
+        headers=headers,
+        post_data=str(post_data) if post_data is not None else None,
+        resource_type=str(params.get("resourceType", "")),
+        is_navigation=False,
+    )
+
+
+class Route:
+    """A paused request waiting for a verdict.
+
+    Yielded to handlers registered via :meth:`Tab.route`. The handler
+    MUST call exactly one of :meth:`continue_`, :meth:`abort`, or
+    :meth:`fulfill` — otherwise the request hangs until Chrome's
+    network timeout. If the handler raises before resolving, the
+    request is auto-continued so the page doesn't wedge.
+
+    The route can be inspected via ``route.request``.
+    """
+
+    __slots__ = ("_tab", "_request_id", "request", "_resolved")
+
+    def __init__(self, tab: Tab, request_id: str, request: Request) -> None:
+        self._tab = tab
+        self._request_id = request_id
+        self.request = request
+        self._resolved = False
+
+    def __repr__(self) -> str:
+        return f"<Route {self.request.method} {self.request.url!r}>"
+
+    async def continue_(
+        self,
+        *,
+        url: str | None = None,
+        method: str | None = None,
+        headers: dict[str, str] | None = None,
+        post_data: bytes | str | None = None,
+    ) -> None:
+        """Let the request proceed, optionally modifying it first.
+
+        Any kwarg you pass replaces the corresponding field; leaving a
+        kwarg unset keeps Chrome's original value. ``headers`` replaces
+        the entire header set — to add a single header, merge it onto
+        ``self.request.headers`` and pass the merged dict.
+        """
+        if self._resolved:
+            raise RuntimeError("route already resolved")
+        params: dict[str, Any] = {"requestId": self._request_id}
+        if url is not None:
+            params["url"] = url
+        if method is not None:
+            params["method"] = method
+        if headers is not None:
+            params["headers"] = [
+                {"name": k, "value": v} for k, v in headers.items()
+            ]
+        if post_data is not None:
+            if isinstance(post_data, str):
+                post_data = post_data.encode("utf-8")
+            params["postData"] = base64.b64encode(post_data).decode("ascii")
+        self._resolved = True
+        await self._tab._send("Fetch.continueRequest", params)
+
+    async def abort(self, error_reason: str = "Failed") -> None:
+        """Cancel the request with a CDP error reason.
+
+        Valid reasons include ``Failed``, ``Aborted``, ``TimedOut``,
+        ``AccessDenied``, ``ConnectionClosed``, ``ConnectionReset``,
+        ``ConnectionRefused``, ``ConnectionAborted``, ``ConnectionFailed``,
+        ``NameNotResolved``, ``InternetDisconnected``, ``AddressUnreachable``,
+        ``BlockedByClient``, ``BlockedByResponse``.
+        """
+        if self._resolved:
+            raise RuntimeError("route already resolved")
+        self._resolved = True
+        await self._tab._send(
+            "Fetch.failRequest",
+            {"requestId": self._request_id, "errorReason": error_reason},
+        )
+
+    async def fulfill(
+        self,
+        *,
+        status: int = 200,
+        body: bytes | str = b"",
+        headers: dict[str, str] | None = None,
+        content_type: str | None = None,
+    ) -> None:
+        """Return a synthetic response without hitting the network.
+
+        Useful for mocking SDK endpoints in tests, feeding a solver's
+        pre-computed token back as if it came from the server, or
+        short-circuiting tracking calls with a 204.
+        """
+        if self._resolved:
+            raise RuntimeError("route already resolved")
+        body_bytes = body.encode("utf-8") if isinstance(body, str) else body
+        hdr_list: list[dict[str, str]] = []
+        if content_type:
+            hdr_list.append({"name": "Content-Type", "value": content_type})
+        if headers:
+            for k, v in headers.items():
+                if content_type and k.lower() == "content-type":
+                    continue
+                hdr_list.append({"name": k, "value": v})
+        self._resolved = True
+        await self._tab._send(
+            "Fetch.fulfillRequest",
+            {
+                "requestId": self._request_id,
+                "responseCode": status,
+                "responseHeaders": hdr_list,
+                "body": base64.b64encode(body_bytes).decode("ascii"),
+            },
+        )
