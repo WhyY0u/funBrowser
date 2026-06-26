@@ -89,6 +89,28 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.21] - 2026-06-26
+
+### Fixed
+
+- **`funbrowser.helpers.google.continue_signin` — FedCM / inline OAuth
+  flows weren't supported.** The helper used to fail fast when the tab
+  URL wasn't on `accounts.google.com`, but some "Sign in with Google"
+  integrations (Autodesk and others) render Google's sign-in DOM
+  directly inside the client page — URL stays on the client site the
+  whole time. The page-detection check now combines URL + DOM markers
+  (identifier input, password input, chooser tile, consent button) and
+  works on both flows transparently. The wait-for-done loop uses the
+  same combined check instead of waiting for a URL change.
+
+### Added
+
+- **`continue_signin` now clicks through the OAuth consent screen.**
+  After password entry, Google's "<App> wants to access your info"
+  page is auto-confirmed via the Continue button (`[jsname="uRHG6"]`).
+  Pass `allow_consent=False` to opt out and leave the consent decision
+  to the user.
+
 ## [0.1.20] - 2026-06-26
 
 ### Fixed

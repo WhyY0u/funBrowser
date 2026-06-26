@@ -65,6 +65,21 @@ _CHALLENGE_PATTERNS = (
     re.compile(r"challenge|verify|gws_signin/challenge", re.IGNORECASE),
     re.compile(r"selectchallenge|signin/v\d+/challenge"),
 )
+# DOM markers that identify a Google sign-in surface. We check these
+# in addition to the URL because FedCM / inline OAuth flows (e.g.
+# Autodesk's "Sign in with Google") render Google's sign-in DOM inside
+# the client page — the tab's URL stays on the client site the whole
+# time, but the password input, chooser tiles, and consent button are
+# all present and interactive.
+_GOOGLE_SIGNIN_MARKERS = (
+    "#identifierId",
+    'input[name="identifier"]',
+    'input[name="Passwd"]',
+    'input[type="password"]',
+    '[jsname="rwl3qc"]',
+    '[jsname="uRHG6"]',
+    "[data-identifier]",
+)
 
 
 async def login(
@@ -207,27 +222,36 @@ async def continue_signin(
     email: str,
     password: str,
     totp_secret: str | None = None,
+    allow_consent: bool = True,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
     """Complete an in-progress "Sign in with Google" OAuth flow.
 
     Use this when a **third-party site** (Autodesk, Notion, Figma, any
-    OAuth client) has already redirected the tab to ``accounts.google.com``
-    after the user clicked "Sign in with Google". The helper drives
-    whatever Google screen is currently visible — account chooser,
-    email input, password input, 2FA — and returns when Google
-    redirects back to the client app.
+    OAuth client) has already shown the Google sign-in UI after the
+    user clicked "Sign in with Google". The helper drives whatever
+    Google screen is currently visible — account chooser, email input,
+    password input, 2FA, OAuth consent — and returns when Google hands
+    control back to the client app.
+
+    Works with both the classic redirect flow (URL goes to
+    ``accounts.google.com``) and FedCM / inline OAuth flows where the
+    tab's URL stays on the client site but Google's sign-in DOM is
+    rendered inside the client page.
+
+    With ``allow_consent=True`` (default), the helper clicks the
+    "Continue" button on the OAuth consent screen automatically. Pass
+    ``allow_consent=False`` to leave the consent decision to the user.
 
     Same return shape as :func:`login`:
     ``{"ok": bool, "url": str, "challenge": str | None}``. ``ok=True``
-    means we left ``accounts.google.com`` (= the OAuth flow completed
+    means Google's sign-in surface is gone (= the OAuth flow completed
     and the client got its callback). Doesn't navigate anywhere itself.
 
     ::
 
         tab = await browser.get("https://example.com")
         await tab.click("button.sign-in-with-google")
-        # tab is now on accounts.google.com OAuth flow
         result = await helpers.google.continue_signin(
             tab, email="alice@gmail.com", password="...",
         )
@@ -235,7 +259,7 @@ async def continue_signin(
     tab = await _resolve_tab(browser_or_tab)
     await asyncio.sleep(0.8)
 
-    if "accounts.google.com" not in tab.url.lower():
+    if not await _on_google_signin_surface(tab):
         return {
             "ok": False,
             "url": tab.url,
@@ -297,10 +321,17 @@ async def continue_signin(
         except TimeoutError:
             continue
     if pwd_sel is None:
-        # Possibly already redirected back to the client (silent SSO).
-        if "accounts.google.com" not in tab.url.lower():
+        # No password input — either silent SSO already redirected back
+        # to the client, or we're sitting on the consent screen with no
+        # password step needed. Try consent; if neither path applies,
+        # report stuck.
+        if allow_consent and await _click_consent_continue(tab, timeout=2.0):
+            # Fall through to the wait-for-done loop below.
+            pwd_sel = ""  # sentinel: don't try to type a password
+        elif not await _on_google_signin_surface(tab):
             return {"ok": True, "url": tab.url, "challenge": None}
-        return {"ok": False, "url": tab.url, "challenge": "password-page-never-appeared"}
+        else:
+            return {"ok": False, "url": tab.url, "challenge": "password-page-never-appeared"}
     await asyncio.sleep(0.8)
     await tab.fill(pwd_sel, password, timeout=timeout)
     try:
@@ -308,17 +339,28 @@ async def continue_signin(
     except Exception:
         pass
 
-    # ── wait for redirect away from accounts.google.com ──────────────
+    # ── OAuth consent screen ────────────────────────────────────────
+    # Google's "<App> wants to access your info" page renders after
+    # password (or immediately, if the password step was skipped via
+    # silent SSO). The Continue button is a real <button> nested
+    # inside a div[jsname="uRHG6"]; Cancel is div[jsname="W3Rzrc"].
+    if allow_consent:
+        await _click_consent_continue(tab, timeout=8.0)
+
+    # ── wait for Google's sign-in surface to disappear ──────────────
+    # Done = no more Google sign-in markers AND URL is off Google. The
+    # marker check is what catches FedCM/inline OAuth flows where the
+    # URL stays on the client site the whole time.
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     last_challenge: str | None = None
 
     while loop.time() < deadline:
         await asyncio.sleep(1.0)
-        url = tab.url
-        if "accounts.google.com" not in url.lower():
-            return {"ok": True, "url": url, "challenge": None}
+        if not await _on_google_signin_surface(tab):
+            return {"ok": True, "url": tab.url, "challenge": None}
 
+        url = tab.url
         body_text = (await tab.evaluate("document.body.innerText", default="") or "").lower()
         for needle in _PASSWORD_REJECTED_FRAGMENTS:
             if needle in body_text:
@@ -336,6 +378,9 @@ async def continue_signin(
                 return {"ok": False, "url": url, "challenge": "recovery"}
             if "tap" in body_text and "phone" in body_text:
                 return {"ok": False, "url": url, "challenge": "phone-prompt"}
+
+        if allow_consent:
+            await _click_consent_continue(tab, timeout=0.5)
 
     return {"ok": False, "url": tab.url, "challenge": last_challenge or "timeout"}
 
@@ -363,6 +408,42 @@ async def _resolve_tab(browser_or_tab: Browser | Tab) -> Tab:
     if isinstance(browser_or_tab, _B):
         return await browser_or_tab.new_tab()
     return browser_or_tab  # already a Tab
+
+
+async def _on_google_signin_surface(tab: Tab) -> bool:
+    """True if the tab is showing any Google sign-in UI.
+
+    Combines URL and DOM checks so we work on both the classic
+    ``accounts.google.com`` redirect flow and FedCM / inline OAuth
+    flows where the tab URL stays on the client site but Google's
+    sign-in DOM is injected into the page.
+    """
+    if "accounts.google.com" in tab.url.lower():
+        return True
+    for sel in _GOOGLE_SIGNIN_MARKERS:
+        if await tab.exists(sel):
+            return True
+    return False
+
+
+async def _click_consent_continue(tab: Tab, *, timeout: float = 5.0) -> bool:
+    """Click the OAuth consent screen's "Continue" button if it appears.
+
+    On third-party "Sign in with Google" flows, Google shows a consent
+    page ("<App> will access your name, email, ...") with Cancel and
+    Continue buttons after password entry. The Continue button is a
+    real ``<button>`` nested inside a ``div[jsname="uRHG6"]`` wrapper.
+    Returns True if we managed to click it within ``timeout`` seconds.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if await tab.exists('[jsname="uRHG6"]'):
+            if await _js_click(tab, '[jsname="uRHG6"] button'):
+                return True
+            return await _js_click(tab, '[jsname="uRHG6"]')
+        await asyncio.sleep(0.4)
+    return False
 
 
 async def _js_click(tab: Tab, selector: str) -> bool:
