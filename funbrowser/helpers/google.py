@@ -38,6 +38,7 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -95,7 +96,9 @@ async def login(
     # If the browser profile has any previously-used Google account,
     # Google shows a "Choose an account" screen with that account + a
     # "Use another account" entry instead of the identifier input. We
-    # detect by URL fragment + DOM marker and click through.
+    # detect by URL fragment + DOM marker and click through. JS click
+    # is used: CDP-synthesised mouse events don't fire on Google's
+    # chooser tile handlers.
     await asyncio.sleep(0.5)
     if "accountchooser" in tab.url.lower() or await tab.exists('[jsname="rwl3qc"]'):
         clicked = False
@@ -104,12 +107,9 @@ async def login(
             '[data-button-type="addAccount"]',
             'div[role="link"][data-authuser="-1"]',
         ):
-            try:
-                await tab.click(sel, timeout=4.0)
+            if await _js_click(tab, sel):
                 clicked = True
                 break
-            except Exception:
-                continue
         if not clicked:
             return {
                 "ok": False,
@@ -246,23 +246,19 @@ async def continue_signin(
     # If a tile for our email is on screen, click it directly (Google
     # will go straight to the password page). Otherwise click "Use
     # another account" and fall through to the email input below.
+    # JS click is used: CDP-synthesised mouse events don't fire on
+    # Google's chooser tile handlers.
     if await tab.exists('[jsname="rwl3qc"]'):
-        existing_tile = f'[data-identifier="{email}"]'
-        clicked_tile = False
-        try:
-            await tab.click(existing_tile, timeout=3.0)
-            clicked_tile = True
-        except Exception:
-            pass
+        existing_tile = f"[data-identifier={json.dumps(email)}]"
+        clicked_tile = await _js_click(tab, existing_tile)
         if not clicked_tile:
-            try:
-                await tab.click('[jsname="rwl3qc"]', timeout=4.0)
-            except Exception:
-                return {
-                    "ok": False,
-                    "url": tab.url,
-                    "challenge": "account-chooser-stuck",
-                }
+            clicked_tile = await _js_click(tab, '[jsname="rwl3qc"]')
+        if not clicked_tile:
+            return {
+                "ok": False,
+                "url": tab.url,
+                "challenge": "account-chooser-stuck",
+            }
         await asyncio.sleep(1.5)
 
     # ── email step (skipped if we clicked the existing tile) ─────────
@@ -367,6 +363,26 @@ async def _resolve_tab(browser_or_tab: Browser | Tab) -> Tab:
     if isinstance(browser_or_tab, _B):
         return await browser_or_tab.new_tab()
     return browser_or_tab  # already a Tab
+
+
+async def _js_click(tab: Tab, selector: str) -> bool:
+    """Trigger element.click() in the page's JS context.
+
+    Google's account-chooser tiles are ``<div role=link>`` whose click
+    handlers don't reliably fire under CDP-synthesised mouse events.
+    Calling ``element.click()`` from JS dispatches a real click event
+    inside the page's own runtime and goes through.
+    """
+    sel_json = json.dumps(selector)
+    try:
+        result = await tab.evaluate(
+            f"(() => {{ const t = document.querySelector({sel_json}); "
+            f"if (!t) return null; t.click(); return 'clicked'; }})()",
+            default=None,
+        )
+    except Exception:
+        return False
+    return bool(result == "clicked")
 
 
 async def _try_totp(tab: Tab, secret: str) -> bool:

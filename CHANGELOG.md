@@ -89,6 +89,18 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.20] - 2026-06-26
+
+### Fixed
+
+- **`funbrowser.helpers.google.continue_signin` + `login` — account
+  chooser tiles weren't clicking.** Google's "Choose an account" tiles
+  are `<div role="link">` whose click handlers don't fire on
+  CDP-synthesised mouse events. The chooser flow now uses
+  `element.click()` via `tab.evaluate(...)` for these tiles, which
+  dispatches inside the page's own JS runtime and goes through reliably.
+  No API change.
+
 ## [0.1.19] - 2026-06-26
 
 ### Added
