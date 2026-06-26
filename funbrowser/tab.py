@@ -371,8 +371,7 @@ class Tab:
         """
         # Drop any old block dispatcher (block_urls is a "set", not "add").
         self._fetch_dispatchers = [
-            d for d in self._fetch_dispatchers
-            if getattr(d, "_kind", None) != "block"
+            d for d in self._fetch_dispatchers if getattr(d, "_kind", None) != "block"
         ]
         self._blocked_patterns = list(patterns)
 
@@ -382,6 +381,7 @@ class Tab:
             return
 
         if patterns:
+
             async def _block_dispatcher(params: dict[str, Any]) -> bool:
                 url = params.get("request", {}).get("url", "")
                 for p in self._blocked_patterns:
@@ -409,8 +409,7 @@ class Tab:
     async def unblock_urls(self) -> None:
         self._blocked_patterns = []
         self._fetch_dispatchers = [
-            d for d in self._fetch_dispatchers
-            if getattr(d, "_kind", None) != "block"
+            d for d in self._fetch_dispatchers if getattr(d, "_kind", None) != "block"
         ]
         if not self._route_entries:
             await self._fetch_disable_if_idle()
@@ -533,8 +532,7 @@ class Tab:
             except ValueError:
                 pass
             self._fetch_dispatchers = [
-                d for d in self._fetch_dispatchers
-                if getattr(d, "_entry", None) is not entry
+                d for d in self._fetch_dispatchers if getattr(d, "_entry", None) is not entry
             ]
             # Best-effort resync — the user may not be in an async context here.
             task = asyncio.ensure_future(self._fetch_resync_after_unroute())
@@ -559,6 +557,7 @@ class Tab:
             await tab.mock("*api/token*", '{"token":"abc"}',
                            content_type="application/json")
         """
+
         async def _handler(route: Route) -> None:
             await route.fulfill(
                 status=status,
@@ -566,6 +565,7 @@ class Tab:
                 headers=headers,
                 content_type=content_type,
             )
+
         return await self.route(url_pattern, _handler)
 
     async def _fetch_resync_after_unroute(self) -> None:
@@ -583,16 +583,19 @@ class Tab:
         for p in self._blocked_patterns:
             patterns.append({"urlPattern": p, "requestStage": "Request"})
         for url_pat, _, stage in self._route_entries:
-            patterns.append({
-                "urlPattern": url_pat,
-                "requestStage": "Response" if stage == "response" else "Request",
-            })
+            patterns.append(
+                {
+                    "urlPattern": url_pat,
+                    "requestStage": "Response" if stage == "response" else "Request",
+                }
+            )
         self._fetch_patterns = patterns
 
         await self._send("Fetch.enable", {"patterns": patterns})
         self._fetch_enabled = True
 
         if self._fetch_unsub is None:
+
             async def _on_paused(params: dict[str, Any]) -> None:
                 for d in list(self._fetch_dispatchers):
                     try:
@@ -657,9 +660,7 @@ class Tab:
             except Exception:
                 logger.exception("on_request handler raised for %s", req.url)
 
-        return self._cdp.on(
-            "Network.requestWillBeSent", _on_event, session_id=self._session_id
-        )
+        return self._cdp.on("Network.requestWillBeSent", _on_event, session_id=self._session_id)
 
     async def wait_for_request(
         self,
@@ -696,9 +697,7 @@ class Tab:
             except Exception:
                 logger.exception("wait_for_request predicate raised for %s", req.url)
 
-        unsub = self._cdp.on(
-            "Network.requestWillBeSent", _on_event, session_id=self._session_id
-        )
+        unsub = self._cdp.on("Network.requestWillBeSent", _on_event, session_id=self._session_id)
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:
@@ -765,9 +764,7 @@ class Tab:
             except Exception:
                 logger.exception("on_response handler raised for %s", resp.url)
 
-        return self._cdp.on(
-            "Network.responseReceived", _on_event, session_id=self._session_id
-        )
+        return self._cdp.on("Network.responseReceived", _on_event, session_id=self._session_id)
 
     async def wait_for_response(
         self,
@@ -823,9 +820,7 @@ class Tab:
             except Exception:
                 logger.exception("wait_for_response predicate raised for %s", resp.url)
 
-        unsub = self._cdp.on(
-            "Network.responseReceived", _on_event, session_id=self._session_id
-        )
+        unsub = self._cdp.on("Network.responseReceived", _on_event, session_id=self._session_id)
         try:
             resp = await asyncio.wait_for(fut, timeout=timeout)
             if prefetch_body:
@@ -1182,9 +1177,7 @@ class Route:
                 )
             params: dict[str, Any] = {"requestId": self._request_id}
             if headers is not None:
-                params["responseHeaders"] = [
-                    {"name": k, "value": v} for k, v in headers.items()
-                ]
+                params["responseHeaders"] = [{"name": k, "value": v} for k, v in headers.items()]
             self._resolved = True
             await self._tab._send("Fetch.continueResponse", params)
             return
@@ -1194,9 +1187,7 @@ class Route:
         if method is not None:
             params["method"] = method
         if headers is not None:
-            params["headers"] = [
-                {"name": k, "value": v} for k, v in headers.items()
-            ]
+            params["headers"] = [{"name": k, "value": v} for k, v in headers.items()]
         if post_data is not None:
             if isinstance(post_data, str):
                 post_data = post_data.encode("utf-8")
