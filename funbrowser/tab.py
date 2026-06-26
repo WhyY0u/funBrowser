@@ -8,7 +8,7 @@ import fnmatch
 import json as _json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal
 
 from ._cdp import CDPConnection
 from ._errors import CDPError, TargetClosed
@@ -17,11 +17,11 @@ from .humanly import HumanBehavior
 
 logger = logging.getLogger(__name__)
 
-ResponseHandler = Callable[["Response"], Union[Awaitable[None], None]]
+ResponseHandler = Callable[["Response"], Awaitable[None] | None]
 ResponsePredicate = Callable[["Response"], bool]
-RequestHandler = Callable[["Request"], Union[Awaitable[None], None]]
+RequestHandler = Callable[["Request"], Awaitable[None] | None]
 RequestPredicate = Callable[["Request"], bool]
-RouteHandler = Callable[["Route"], Union[Awaitable[None], None]]
+RouteHandler = Callable[["Route"], Awaitable[None] | None]
 # Fetch dispatcher returns True if it handled the paused request
 # (called continueRequest / failRequest / fulfillRequest), False to pass.
 _FetchDispatcher = Callable[[dict[str, Any]], Awaitable[bool]]
@@ -77,6 +77,9 @@ class Tab:
         self._fetch_unsub: Any = None
         # (url_pattern, handler, stage) where stage ∈ {"request", "response"}
         self._route_entries: list[tuple[str, RouteHandler, str]] = []
+        # Keeps strong refs to background resync tasks spawned from
+        # route-unsubscribe so they aren't GC'd mid-flight.
+        self._bg_tasks: set[asyncio.Task[None]] = set()
         # cursor + humanly profile carried from Browser
         self._cursor: tuple[float, float] | None = None
         self._humanly: HumanBehavior | None = browser._humanly
@@ -534,7 +537,9 @@ class Tab:
                 if getattr(d, "_entry", None) is not entry
             ]
             # Best-effort resync — the user may not be in an async context here.
-            asyncio.ensure_future(self._fetch_resync_after_unroute())
+            task = asyncio.ensure_future(self._fetch_resync_after_unroute())
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
 
         return _unsub
 
@@ -903,7 +908,7 @@ class Response:
     promptly from inside your handler if you need it.
     """
 
-    __slots__ = ("_tab", "_request_id", "url", "status", "headers", "_body", "_via_fetch")
+    __slots__ = ("_body", "_request_id", "_tab", "_via_fetch", "headers", "status", "url")
 
     def __init__(
         self,
@@ -998,8 +1003,16 @@ class Request:
     - ``is_navigation`` — True for the top-level navigation request
     """
 
-    __slots__ = ("_tab", "_request_id", "url", "method", "headers",
-                 "post_data", "resource_type", "is_navigation")
+    __slots__ = (
+        "_request_id",
+        "_tab",
+        "headers",
+        "is_navigation",
+        "method",
+        "post_data",
+        "resource_type",
+        "url",
+    )
 
     def __init__(
         self,
@@ -1116,7 +1129,7 @@ class Route:
     - ``route.stage`` — ``"request"`` or ``"response"``.
     """
 
-    __slots__ = ("_tab", "_request_id", "request", "response", "stage", "_resolved")
+    __slots__ = ("_request_id", "_resolved", "_tab", "request", "response", "stage")
 
     def __init__(
         self,
