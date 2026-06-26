@@ -89,6 +89,30 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.24] - 2026-06-26
+
+### Added
+
+- **HTTP response interception on `Tab`.** Two new methods plus a
+  `Response` value type cover the puppeteer-style
+  `page.on('response')` / `page.waitForResponse(...)` use case:
+  - `await tab.on_response(handler) -> unsubscribe` — fires for every
+    `Network.responseReceived` event. Handler receives a `Response`;
+    both sync and async handlers are accepted.
+  - `await tab.wait_for_response(url_or_predicate, *, timeout=30.0)`
+    — async wait for the first matching response. Accepts a URL
+    substring or a `(Response) -> bool` predicate.
+  - `funbrowser.Response` — `.url`, `.status`, `.headers`, plus lazy
+    `await .body()` / `.text()` / `.json()` (body cached after first
+    call). Chrome buffers bodies for a limited window after the
+    request completes; read them promptly inside the handler. The
+    error message points the user at this if the buffer evicts.
+
+  Enables flows like the DataDome solver pattern (snoop a specific
+  XHR, extract the SDK payload, feed it to a solver) without dropping
+  to raw CDP. `Network.enable` is called lazily on first use, so tabs
+  that don't observe responses pay nothing.
+
 ## [0.1.23] - 2026-06-26
 
 ### Added

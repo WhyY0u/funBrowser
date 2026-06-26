@@ -38,14 +38,14 @@ from .profile import Profile
 from .proxy import Proxy, ProxyParseError
 from .proxy import parse as parse_proxy
 from .solver import FunSolverClient, FunSolverError
-from .tab import Tab
+from .tab import Response, Tab
 
 helpers = helpers_mod
 humanly = humanly_mod
 mail = mail_mod
 tls = tls_mod
 
-__version__ = "0.1.23"
+__version__ = "0.1.24"
 
 __all__ = [
     "Browser",
@@ -69,6 +69,7 @@ __all__ = [
     "Profile",
     "Proxy",
     "ProxyParseError",
+    "Response",
     "Tab",
     "TargetClosed",
     "__version__",

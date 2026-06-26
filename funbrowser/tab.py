@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+import json as _json
+import logging
+from collections.abc import Awaitable, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Union
 
 from ._cdp import CDPConnection
-from ._errors import TargetClosed
+from ._errors import CDPError, TargetClosed
 from .element import ElementHandle
 from .humanly import HumanBehavior
+
+logger = logging.getLogger(__name__)
+
+ResponseHandler = Callable[["Response"], Union[Awaitable[None], None]]
+ResponsePredicate = Callable[["Response"], bool]
 
 if TYPE_CHECKING:
     from .browser import Browser
@@ -52,6 +59,7 @@ class Tab:
         self._url = "about:blank"
         self._blocked_patterns: list[str] = []
         self._block_unsub: Any = None
+        self._network_enabled = False
         # cursor + humanly profile carried from Browser
         self._cursor: tuple[float, float] | None = None
         self._humanly: HumanBehavior | None = browser._humanly
@@ -378,6 +386,120 @@ class Tab:
         except Exception:
             pass
 
+    async def _ensure_network_enabled(self) -> None:
+        if self._network_enabled:
+            return
+        await self._send("Network.enable")
+        self._network_enabled = True
+
+    async def on_response(self, handler: ResponseHandler) -> Callable[[], None]:
+        """Register a callback for every HTTP response on this tab.
+
+        The handler is invoked with a :class:`Response` for each
+        ``Network.responseReceived`` event. Both sync and async
+        handlers are accepted. Returns an unsubscribe callable.
+
+        The response body is NOT fetched eagerly — call
+        ``await response.body()`` (or ``.text()`` / ``.json()``) from
+        inside the handler when you need it. Chrome buffers bodies for
+        a limited window after the request completes; reading them
+        later may fail with "no data found for resource".
+
+        Use this for response-snooping flows like the DataDome SDK
+        intercept (read body of a specific XHR, extract the payload,
+        feed it to a solver). For just blocking or modifying requests,
+        see :meth:`block_urls`.
+
+        ::
+
+            async def _snoop(resp):
+                if "datadome.co" in resp.url and resp.status == 200:
+                    payload = await resp.json()
+                    print("got DD payload:", payload.keys())
+
+            unsub = await tab.on_response(_snoop)
+            await tab.goto("https://target.com")
+            ...
+            unsub()
+        """
+        await self._ensure_network_enabled()
+
+        async def _on_event(params: dict[str, Any]) -> None:
+            resp = _response_from_event(self, params)
+            if resp is None:
+                return
+            try:
+                result = handler(resp)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                logger.exception("on_response handler raised for %s", resp.url)
+
+        return self._cdp.on(
+            "Network.responseReceived", _on_event, session_id=self._session_id
+        )
+
+    async def wait_for_response(
+        self,
+        url_or_predicate: str | ResponsePredicate,
+        *,
+        timeout: float = 30.0,
+    ) -> Response:
+        """Wait for the first response matching a URL substring or predicate.
+
+        ``url_or_predicate`` is either a substring matched against
+        ``response.url``, or a callable ``(Response) -> bool``.
+        Returns the matching :class:`Response`; the body has not been
+        fetched yet — ``await resp.body()`` / ``.text()`` / ``.json()``
+        to read it.
+
+        Raises :class:`asyncio.TimeoutError` if no match arrives in
+        ``timeout`` seconds.
+
+        ::
+
+            async with funbrowser.start(headless=True) as browser:
+                tab = await browser.new_tab()
+                # arm the wait BEFORE the action that triggers the response
+                waiter = asyncio.create_task(
+                    tab.wait_for_response("/api/captcha", timeout=20)
+                )
+                await tab.goto("https://target.com")
+                resp = await waiter
+                payload = await resp.json()
+        """
+        await self._ensure_network_enabled()
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Response] = loop.create_future()
+
+        _matches: ResponsePredicate
+        if isinstance(url_or_predicate, str):
+            needle = url_or_predicate
+            _matches = lambda r: needle in r.url  # noqa: E731
+        else:
+            _matches = url_or_predicate
+
+        def _on_event(params: dict[str, Any]) -> None:
+            if fut.done():
+                return
+            resp = _response_from_event(self, params)
+            if resp is None:
+                return
+            try:
+                if _matches(resp):
+                    fut.set_result(resp)
+            except Exception:
+                logger.exception("wait_for_response predicate raised for %s", resp.url)
+
+        unsub = self._cdp.on(
+            "Network.responseReceived", _on_event, session_id=self._session_id
+        )
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            unsub()
+
     async def screenshot(self, *, format: str = "png") -> bytes:
         if format not in ("png", "jpeg"):
             raise ValueError(f"Unsupported format: {format!r}")
@@ -431,3 +553,91 @@ class Tab:
             await self._cdp.send("Target.closeTarget", {"targetId": self._target_id})
         finally:
             self._browser._on_tab_closed(self)
+
+
+class Response:
+    """A snapshot of an HTTP response observed via CDP.
+
+    Yielded by :meth:`Tab.on_response` and :meth:`Tab.wait_for_response`.
+    Metadata (``url``, ``status``, ``headers``) is captured at the
+    moment ``Network.responseReceived`` fires. The body is lazy — call
+    ``await body()`` / ``text()`` / ``json()`` to fetch it via
+    ``Network.getResponseBody``. The fetched body is cached.
+
+    Chrome buffers response bodies for a limited window after the
+    request completes. Reading the body well after the response fired
+    (e.g. several seconds later, or after navigation) may fail with
+    "No data found for resource with given identifier" — read it
+    promptly from inside your handler if you need it.
+    """
+
+    __slots__ = ("_tab", "_request_id", "url", "status", "headers", "_body")
+
+    def __init__(
+        self,
+        tab: Tab,
+        request_id: str,
+        url: str,
+        status: int,
+        headers: dict[str, str],
+    ) -> None:
+        self._tab = tab
+        self._request_id = request_id
+        self.url = url
+        self.status = status
+        self.headers = headers
+        self._body: bytes | None = None
+
+    def __repr__(self) -> str:
+        return f"<Response {self.status} {self.url!r}>"
+
+    async def body(self) -> bytes:
+        """Fetch the raw response body. Cached after first call."""
+        if self._body is not None:
+            return self._body
+        try:
+            result = await self._tab._send(
+                "Network.getResponseBody", {"requestId": self._request_id}
+            )
+        except CDPError as exc:
+            raise RuntimeError(
+                f"Could not fetch body for {self.url!r}: {exc}. The body "
+                "may have been evicted from Chrome's buffer — read it from "
+                "inside the on_response handler instead of saving the "
+                "Response for later."
+            ) from exc
+        raw = result.get("body", "")
+        if result.get("base64Encoded"):
+            self._body = base64.b64decode(raw)
+        elif isinstance(raw, bytes):
+            self._body = raw
+        else:
+            self._body = str(raw).encode("utf-8")
+        return self._body
+
+    async def text(self) -> str:
+        """Body decoded as UTF-8 (replacement on invalid sequences)."""
+        return (await self.body()).decode("utf-8", errors="replace")
+
+    async def json(self) -> Any:
+        """Body parsed as JSON. Raises ``json.JSONDecodeError`` on bad input."""
+        return _json.loads(await self.text())
+
+
+def _response_from_event(tab: Tab, params: dict[str, Any]) -> Response | None:
+    """Build a Response from a ``Network.responseReceived`` event payload."""
+    resp_data = params.get("response")
+    if not isinstance(resp_data, dict):
+        return None
+    headers_in = resp_data.get("headers") or {}
+    headers: dict[str, str] = {}
+    if isinstance(headers_in, dict):
+        for k, v in headers_in.items():
+            headers[str(k)] = str(v)
+    return Response(
+        tab=tab,
+        request_id=str(params.get("requestId", "")),
+        url=str(resp_data.get("url", "")),
+        status=int(resp_data.get("status", 0) or 0),
+        headers=headers,
+    )
