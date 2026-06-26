@@ -8,7 +8,7 @@ import fnmatch
 import json as _json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 from ._cdp import CDPConnection
 from ._errors import CDPError, TargetClosed
@@ -75,7 +75,8 @@ class Tab:
         self._fetch_patterns: list[dict[str, Any]] = []
         self._fetch_dispatchers: list[_FetchDispatcher] = []
         self._fetch_unsub: Any = None
-        self._route_entries: list[tuple[str, RouteHandler]] = []
+        # (url_pattern, handler, stage) where stage ∈ {"request", "response"}
+        self._route_entries: list[tuple[str, RouteHandler, str]] = []
         # cursor + humanly profile carried from Browser
         self._cursor: tuple[float, float] | None = None
         self._humanly: HumanBehavior | None = browser._humanly
@@ -417,6 +418,8 @@ class Tab:
         self,
         url_pattern: str,
         handler: RouteHandler,
+        *,
+        stage: Literal["request", "response"] = "request",
     ) -> Callable[[], None]:
         """Intercept requests matching ``url_pattern`` and decide their fate.
 
@@ -425,6 +428,21 @@ class Tab:
         — otherwise the request hangs until Chrome times it out. If the
         handler raises, the request is auto-continued so the page doesn't
         wedge.
+
+        ``stage`` picks where to intercept:
+
+        - ``"request"`` (default) — before the request leaves the browser.
+          You can rewrite the URL, method, headers, or post body via
+          ``route.continue_(**overrides)`` and let it through, or
+          short-circuit with ``abort()`` / ``fulfill()``.
+        - ``"response"`` — *after* the server replies but before the page
+          sees it. ``route.response`` is populated with the actual
+          server response (status, headers, body) — you can inspect it,
+          modify it, and ``fulfill()`` with the modified version, or
+          ``continue_()`` to let it pass through unchanged. This is the
+          equivalent of Playwright's ``route.fetch()`` + ``fulfill()``
+          dance, but without the second HTTP roundtrip: we use the
+          response that already came back from the origin.
 
         ``url_pattern`` uses Chrome's URL-pattern syntax (``*`` matches
         anything). Routes are stackable: register many; they fire in
@@ -435,7 +453,7 @@ class Tab:
         Returns an unsubscribe callable. Calling it removes only this
         route; other routes and any block patterns stay in place.
 
-        ::
+        Request-stage example::
 
             async def _mock_captcha(route):
                 if route.request.method == "POST":
@@ -448,18 +466,47 @@ class Tab:
                     await route.continue_()
 
             unsub = await tab.route("*captcha*", _mock_captcha)
-            ...
-            unsub()
+
+        Response-stage example — strip a tracking field out of an API
+        response on the fly::
+
+            async def _strip_pii(route):
+                payload = await route.response.json()
+                payload.pop("user_email", None)
+                await route.fulfill(
+                    status=route.response.status,
+                    body=json.dumps(payload),
+                    headers=route.response.headers,
+                )
+
+            unsub = await tab.route("*api/profile*", _strip_pii, stage="response")
         """
-        entry = (url_pattern, handler)
+        if stage not in ("request", "response"):
+            raise ValueError(f"stage must be 'request' or 'response', got {stage!r}")
+        entry = (url_pattern, handler, stage)
         self._route_entries.append(entry)
 
         async def _route_dispatcher(params: dict[str, Any]) -> bool:
             url = params.get("request", {}).get("url", "")
             if not fnmatch.fnmatchcase(url, url_pattern):
                 return False
+            # Filter by stage: response-stage events carry responseStatusCode.
+            is_response_stage = "responseStatusCode" in params
+            if stage == "response" and not is_response_stage:
+                return False
+            if stage == "request" and is_response_stage:
+                return False
             request = _request_from_paused(self, params)
-            route_obj = Route(self, str(params.get("requestId", "")), request)
+            response: Response | None = None
+            if is_response_stage:
+                response = _response_from_paused(self, params)
+            route_obj = Route(
+                self,
+                str(params.get("requestId", "")),
+                request,
+                response=response,
+                stage=stage,
+            )
             try:
                 result = handler(route_obj)
                 if asyncio.iscoroutine(result):
@@ -491,6 +538,31 @@ class Tab:
 
         return _unsub
 
+    async def mock(
+        self,
+        url_pattern: str,
+        body: bytes | str,
+        *,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+        content_type: str | None = None,
+    ) -> Callable[[], None]:
+        """Shorthand for ``tab.route(url, lambda r: r.fulfill(...))``.
+
+        ::
+
+            await tab.mock("*api/token*", '{"token":"abc"}',
+                           content_type="application/json")
+        """
+        async def _handler(route: Route) -> None:
+            await route.fulfill(
+                status=status,
+                body=body,
+                headers=headers,
+                content_type=content_type,
+            )
+        return await self.route(url_pattern, _handler)
+
     async def _fetch_resync_after_unroute(self) -> None:
         if not self._route_entries and not self._blocked_patterns:
             await self._fetch_disable_if_idle()
@@ -505,8 +577,11 @@ class Tab:
         patterns: list[dict[str, Any]] = []
         for p in self._blocked_patterns:
             patterns.append({"urlPattern": p, "requestStage": "Request"})
-        for url_pat, _ in self._route_entries:
-            patterns.append({"urlPattern": url_pat, "requestStage": "Request"})
+        for url_pat, _, stage in self._route_entries:
+            patterns.append({
+                "urlPattern": url_pat,
+                "requestStage": "Response" if stage == "response" else "Request",
+            })
         self._fetch_patterns = patterns
 
         await self._send("Fetch.enable", {"patterns": patterns})
@@ -624,7 +699,12 @@ class Tab:
         finally:
             unsub()
 
-    async def on_response(self, handler: ResponseHandler) -> Callable[[], None]:
+    async def on_response(
+        self,
+        handler: ResponseHandler,
+        *,
+        prefetch_body: bool = False,
+    ) -> Callable[[], None]:
         """Register a callback for every HTTP response on this tab.
 
         The handler is invoked with a :class:`Response` for each
@@ -641,6 +721,14 @@ class Tab:
         intercept (read body of a specific XHR, extract the payload,
         feed it to a solver). For just blocking or modifying requests,
         see :meth:`block_urls`.
+
+        Pass ``prefetch_body=True`` to have FunBrowser fetch and cache
+        each response's body *before* invoking your handler. This
+        sidesteps Chrome's body-eviction window — useful when your
+        handler may yield to the event loop before reading the body,
+        or when you want to access the body outside the handler. Costs
+        an extra ``Network.getResponseBody`` per response, so leave it
+        off for high-volume tabs unless you need it.
 
         ::
 
@@ -660,6 +748,11 @@ class Tab:
             resp = _response_from_event(self, params)
             if resp is None:
                 return
+            if prefetch_body:
+                try:
+                    await resp.body()
+                except Exception:
+                    pass
             try:
                 result = handler(resp)
                 if asyncio.iscoroutine(result):
@@ -676,6 +769,7 @@ class Tab:
         url_or_predicate: str | ResponsePredicate,
         *,
         timeout: float = 30.0,
+        prefetch_body: bool = False,
     ) -> Response:
         """Wait for the first response matching a URL substring or predicate.
 
@@ -728,7 +822,13 @@ class Tab:
             "Network.responseReceived", _on_event, session_id=self._session_id
         )
         try:
-            return await asyncio.wait_for(fut, timeout=timeout)
+            resp = await asyncio.wait_for(fut, timeout=timeout)
+            if prefetch_body:
+                try:
+                    await resp.body()
+                except Exception:
+                    pass
+            return resp
         finally:
             unsub()
 
@@ -803,7 +903,7 @@ class Response:
     promptly from inside your handler if you need it.
     """
 
-    __slots__ = ("_tab", "_request_id", "url", "status", "headers", "_body")
+    __slots__ = ("_tab", "_request_id", "url", "status", "headers", "_body", "_via_fetch")
 
     def __init__(
         self,
@@ -812,6 +912,8 @@ class Response:
         url: str,
         status: int,
         headers: dict[str, str],
+        *,
+        via_fetch: bool = False,
     ) -> None:
         self._tab = tab
         self._request_id = request_id
@@ -819,6 +921,10 @@ class Response:
         self.status = status
         self.headers = headers
         self._body: bytes | None = None
+        # When True, body is fetched via Fetch.getResponseBody (only
+        # valid inside the response stage of a route handler); when
+        # False, via Network.getResponseBody (the observation path).
+        self._via_fetch = via_fetch
 
     def __repr__(self) -> str:
         return f"<Response {self.status} {self.url!r}>"
@@ -827,16 +933,16 @@ class Response:
         """Fetch the raw response body. Cached after first call."""
         if self._body is not None:
             return self._body
+        method = "Fetch.getResponseBody" if self._via_fetch else "Network.getResponseBody"
         try:
-            result = await self._tab._send(
-                "Network.getResponseBody", {"requestId": self._request_id}
-            )
+            result = await self._tab._send(method, {"requestId": self._request_id})
         except CDPError as exc:
             raise RuntimeError(
                 f"Could not fetch body for {self.url!r}: {exc}. The body "
                 "may have been evicted from Chrome's buffer — read it from "
                 "inside the on_response handler instead of saving the "
-                "Response for later."
+                "Response for later, or pass prefetch_body=True so "
+                "FunBrowser fetches the body before invoking your handler."
             ) from exc
         raw = result.get("body", "")
         if result.get("base64Encoded"):
@@ -942,6 +1048,32 @@ def _request_from_will_be_sent(tab: Tab, params: dict[str, Any]) -> Request | No
     )
 
 
+def _response_from_paused(tab: Tab, params: dict[str, Any]) -> Response:
+    """Build a Response from a response-stage ``Fetch.requestPaused`` payload.
+
+    The returned Response is wired to Fetch.getResponseBody — only valid
+    while the route handler is running, since the body lives in Chrome's
+    fetch buffer until we call continueResponse / fulfillRequest.
+    """
+    req_data = params.get("request") or {}
+    url = str(req_data.get("url", ""))
+    status = int(params.get("responseStatusCode", 0) or 0)
+    headers: dict[str, str] = {}
+    for h in params.get("responseHeaders") or []:
+        if isinstance(h, dict):
+            name = str(h.get("name", ""))
+            value = str(h.get("value", ""))
+            headers[name] = value
+    return Response(
+        tab=tab,
+        request_id=str(params.get("requestId", "")),
+        url=url,
+        status=status,
+        headers=headers,
+        via_fetch=True,
+    )
+
+
 def _request_from_paused(tab: Tab, params: dict[str, Any]) -> Request:
     """Build a Request from a ``Fetch.requestPaused`` event payload."""
     req_data = params.get("request") or {}
@@ -972,19 +1104,38 @@ class Route:
     network timeout. If the handler raises before resolving, the
     request is auto-continued so the page doesn't wedge.
 
-    The route can be inspected via ``route.request``.
+    Available context:
+
+    - ``route.request`` — the request, always populated.
+    - ``route.response`` — the server's response, populated only at
+      response stage (None at request stage). Body is fetched lazily
+      via ``await route.response.body()`` / ``.text()`` / ``.json()``
+      from Chrome's Fetch buffer; this is only valid while the
+      handler is running, so read it before you ``continue_`` /
+      ``fulfill``.
+    - ``route.stage`` — ``"request"`` or ``"response"``.
     """
 
-    __slots__ = ("_tab", "_request_id", "request", "_resolved")
+    __slots__ = ("_tab", "_request_id", "request", "response", "stage", "_resolved")
 
-    def __init__(self, tab: Tab, request_id: str, request: Request) -> None:
+    def __init__(
+        self,
+        tab: Tab,
+        request_id: str,
+        request: Request,
+        *,
+        response: Response | None = None,
+        stage: str = "request",
+    ) -> None:
         self._tab = tab
         self._request_id = request_id
         self.request = request
+        self.response = response
+        self.stage = stage
         self._resolved = False
 
     def __repr__(self) -> str:
-        return f"<Route {self.request.method} {self.request.url!r}>"
+        return f"<Route@{self.stage} {self.request.method} {self.request.url!r}>"
 
     async def continue_(
         self,
@@ -996,14 +1147,35 @@ class Route:
     ) -> None:
         """Let the request proceed, optionally modifying it first.
 
-        Any kwarg you pass replaces the corresponding field; leaving a
-        kwarg unset keeps Chrome's original value. ``headers`` replaces
-        the entire header set — to add a single header, merge it onto
+        At **request stage**: ``url`` / ``method`` / ``headers`` /
+        ``post_data`` rewrite the outgoing request. Any kwarg left
+        unset keeps Chrome's original value. ``headers`` replaces the
+        entire header set — to add a single header, merge it onto
         ``self.request.headers`` and pass the merged dict.
+
+        At **response stage**: only ``headers`` is meaningful — it
+        rewrites the response headers the page sees. ``url`` / ``method``
+        / ``post_data`` raise ``ValueError`` (they're request-only).
         """
         if self._resolved:
             raise RuntimeError("route already resolved")
-        params: dict[str, Any] = {"requestId": self._request_id}
+        if self.stage == "response":
+            if url is not None or method is not None or post_data is not None:
+                raise ValueError(
+                    "url / method / post_data can't be overridden at response "
+                    "stage — the request already went out. Use fulfill() to "
+                    "rewrite the response body / status, or pass headers= to "
+                    "override response headers."
+                )
+            params: dict[str, Any] = {"requestId": self._request_id}
+            if headers is not None:
+                params["responseHeaders"] = [
+                    {"name": k, "value": v} for k, v in headers.items()
+                ]
+            self._resolved = True
+            await self._tab._send("Fetch.continueResponse", params)
+            return
+        params = {"requestId": self._request_id}
         if url is not None:
             params["url"] = url
         if method is not None:

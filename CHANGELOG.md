@@ -89,6 +89,52 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.26] - 2026-06-26
+
+Network interception you can't get from Playwright:
+
+### Added
+
+- **Response-stage routing — `tab.route(url, handler, stage="response")`.**
+  At response stage Chrome pauses *after* the server replies, so
+  `route.response` is populated with the real response (status,
+  headers, body). Read it via `await route.response.text()` /
+  `.json()`, modify it, and `route.fulfill(...)` with your version —
+  or `route.continue_()` to let it pass through unchanged.
+
+  Playwright fakes the same flow with `route.fetch()` + `fulfill()`,
+  which makes a *second* HTTP request to the origin. FunBrowser uses
+  the response Chrome already received from the page's request — no
+  duplicate roundtrip, no risk of the two responses diverging.
+
+  At response stage, `route.continue_(headers=...)` rewrites response
+  headers; `url` / `method` / `post_data` raise because the request
+  already went out.
+
+- **`tab.mock(url, body, *, status=200, headers=None, content_type=None)`**
+  — one-line shorthand for the common `tab.route(url, lambda r:
+  r.fulfill(...))` pattern. Useful for replaying a captured solver
+  payload or short-circuiting a tracker endpoint.
+
+- **`prefetch_body=True` on `tab.on_response(...)` and
+  `tab.wait_for_response(...)`.** When set, FunBrowser fetches and
+  caches each matching response's body *before* invoking your
+  handler (or before returning, for `wait_for_response`). Sidesteps
+  Chrome's body-eviction window, so you can hand the `Response` off
+  to other code, await arbitrary things, and still read `.body()`
+  / `.text()` / `.json()` later without "no data found" surprises.
+  Costs one extra `Network.getResponseBody` per matched response;
+  leave off for high-volume tabs where you don't need it.
+
+### Changed
+
+- `Response` gained a private `via_fetch` flag — internal plumbing
+  so the body-fetch picks the right CDP method (`Fetch.getResponseBody`
+  inside response-stage route handlers vs `Network.getResponseBody`
+  for observed responses). No public API change.
+- `Route` gained `.response` (populated at response stage) and
+  `.stage` (`"request"` or `"response"`) attributes.
+
 ## [0.1.25] - 2026-06-26
 
 ### Added
