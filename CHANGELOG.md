@@ -89,6 +89,20 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.22] - 2026-06-26
+
+### Fixed
+
+- **`funbrowser.helpers.google.login` + `continue_signin` — password
+  fill and `#passwordNext` click now go through page-context JS.**
+  Google's password input is React-controlled, so CDP `Input.insertText`
+  bypasses the internal value tracker and the framework reverts the
+  change. The fill now uses the native `HTMLInputElement.prototype.value`
+  setter + dispatches `input` / `change`. `#passwordNext` is clicked
+  via `element.click()` in page JS for the same reason as the chooser
+  tiles. CDP fill/click remain as automatic fallbacks. Verified live
+  against a real account.
+
 ## [0.1.21] - 2026-06-26
 
 ### Fixed

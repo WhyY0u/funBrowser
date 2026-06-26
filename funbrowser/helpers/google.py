@@ -169,8 +169,18 @@ async def login(
     if pwd_sel is None:
         return {"ok": False, "url": tab.url, "challenge": "password-page-never-appeared"}
     await asyncio.sleep(0.8)
-    await tab.fill(pwd_sel, password, timeout=timeout)
-    await tab.click("#passwordNext")
+    # Same React-aware fill + JS click as continue_signin — see notes there.
+    if not await _js_fill(tab, pwd_sel, password):
+        try:
+            await tab.fill(pwd_sel, password, timeout=timeout)
+        except Exception:
+            return {"ok": False, "url": tab.url, "challenge": "password-fill-failed"}
+    await asyncio.sleep(0.4)
+    if not await _js_click(tab, "#passwordNext"):
+        try:
+            await tab.click("#passwordNext")
+        except Exception:
+            pass
 
     # ── wait for success or challenge ─────────────────────────────────
     loop = asyncio.get_running_loop()
@@ -333,11 +343,24 @@ async def continue_signin(
         else:
             return {"ok": False, "url": tab.url, "challenge": "password-page-never-appeared"}
     await asyncio.sleep(0.8)
-    await tab.fill(pwd_sel, password, timeout=timeout)
-    try:
-        await tab.click("#passwordNext", timeout=4.0)
-    except Exception:
-        pass
+    # Password fill + #passwordNext both go through page-context JS:
+    # the password field is React-controlled (CDP Input.insertText
+    # doesn't notify React's value tracker) and #passwordNext is a
+    # Material-Design button whose handler is registered on a wrapping
+    # element, so a synthetic CDP click on the inner <button> doesn't
+    # always bubble to where the JS expects.
+    if not await _js_fill(tab, pwd_sel, password):
+        # Fall back to CDP typing if for some reason the JS path failed.
+        try:
+            await tab.fill(pwd_sel, password, timeout=timeout)
+        except Exception:
+            return {"ok": False, "url": tab.url, "challenge": "password-fill-failed"}
+    await asyncio.sleep(0.4)
+    if not await _js_click(tab, "#passwordNext"):
+        try:
+            await tab.click("#passwordNext", timeout=4.0)
+        except Exception:
+            pass
 
     # ── OAuth consent screen ────────────────────────────────────────
     # Google's "<App> wants to access your info" page renders after
@@ -464,6 +487,36 @@ async def _js_click(tab: Tab, selector: str) -> bool:
     except Exception:
         return False
     return bool(result == "clicked")
+
+
+async def _js_fill(tab: Tab, selector: str, value: str) -> bool:
+    """Set an ``<input>`` value via the native setter and fire events.
+
+    Google's password field is a React-controlled input — assigning to
+    ``element.value`` directly bypasses React's internal value tracker,
+    and the framework reverts the change on the next render. We have to
+    go through ``HTMLInputElement.prototype.value``'s descriptor setter
+    (React's monkey-patched setter recognises it) and dispatch ``input``
+    + ``change`` so the password-strength checks see the new value.
+    """
+    sel_json = json.dumps(selector)
+    val_json = json.dumps(value)
+    try:
+        result = await tab.evaluate(
+            f"(() => {{ const t = document.querySelector({sel_json}); "
+            f"if (!t) return null; "
+            f"const proto = window.HTMLInputElement && window.HTMLInputElement.prototype; "
+            f"const desc = proto && Object.getOwnPropertyDescriptor(proto, 'value'); "
+            f"if (desc && desc.set) {{ desc.set.call(t, {val_json}); }} "
+            f"else {{ t.value = {val_json}; }} "
+            f"t.dispatchEvent(new Event('input', {{bubbles: true}})); "
+            f"t.dispatchEvent(new Event('change', {{bubbles: true}})); "
+            f"return 'filled'; }})()",
+            default=None,
+        )
+    except Exception:
+        return False
+    return bool(result == "filled")
 
 
 async def _try_totp(tab: Tab, secret: str) -> bool:
