@@ -89,6 +89,45 @@ First public release. Everything below `Added` is what made the cut.
 
 - `examples/save_session.py` walks save + restore in two browser processes.
 
+## [0.1.27] - 2026-06-27
+
+### Added
+
+- **Profile cache templates — `funbrowser.cache` + `cache_template=`.**
+  Pre-warm Chrome's HTTP cache and V8 code cache once, snapshot the
+  directories, and apply the snapshot to every fresh profile in a
+  farm. Cold-start asset fetches are served from disk instead of the
+  network; V8 hot scripts skip recompilation.
+
+  ::
+
+      # Warm once.
+      async with funbrowser.start(headless=True) as warmer:
+          await warmer.get("https://target.com")
+          await warmer.get("https://target.com/login")
+      funbrowser.cache.save_template(
+          warmer.user_data_dir, "templates/target-v1"
+      )
+
+      # Every worker starts with the cache pre-applied.
+      async with funbrowser.start(
+          nano=True, headless=True, cache_template="templates/target-v1"
+      ) as br:
+          ...
+
+  Module API: `save_template(user_data_dir, template_dir, *,
+  overwrite=True)`, `apply_template(template_dir, user_data_dir)`,
+  `template_size_bytes(template_dir)`. Covers
+  `Default/Cache` (HTTP responses) and `Default/Code Cache` (V8
+  bytecode). `GPUCache` is deliberately excluded — tied to GPU + driver,
+  bloats template without payoff on a fresh profile.
+
+  Also works through `BrowserPool(..., cache_template="...")` — kwargs
+  forward automatically; every spawned worker gets the template.
+
+- **`browser.user_data_dir`** property — exposes the profile path so
+  you can hand it to `save_template` without poking at internals.
+
 ## [0.1.26] - 2026-06-26
 
 Network interception you can't get from Playwright:

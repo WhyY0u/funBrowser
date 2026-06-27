@@ -128,6 +128,16 @@ class Browser:
     def geo(self) -> GeoInfo | None:
         return self._geo
 
+    @property
+    def user_data_dir(self) -> Path:
+        """Filesystem path of this browser's Chrome profile directory.
+
+        Useful for snapshotting a warmed cache template via
+        :func:`funbrowser.cache.save_template` after driving the browser
+        through your target pages.
+        """
+        return self._launched.user_data_dir
+
     @classmethod
     async def start(
         cls,
@@ -142,6 +152,7 @@ class Browser:
         humanly: bool | HumanBehavior = False,
         mini: bool = False,
         nano: bool = False,
+        cache_template: str | Path | None = None,
         api_key: str | None = None,
         auto_solve: bool = True,
         solver_base_url: str | None = None,
@@ -166,11 +177,16 @@ class Browser:
         parts.append(list(args))
         extra = merge_flags(*parts)
 
+        cache_tmpl_path: Path | None = None
+        if cache_template is not None:
+            cache_tmpl_path = Path(cache_template)
+
         launched = await launch_chrome(
             executable=Path(executable) if executable else None,
             user_data_dir=Path(user_data_dir) if user_data_dir else None,
             headless=headless,
             extra_args=extra,
+            cache_template=cache_tmpl_path,
         )
         cdp = CDPConnection(launched.ws_url)
         await cdp.connect()

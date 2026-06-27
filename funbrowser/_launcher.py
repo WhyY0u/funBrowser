@@ -101,8 +101,16 @@ async def launch_chrome(
     extra_args: Sequence[str] = (),
     port: int = 0,
     startup_timeout: float = 30.0,
+    cache_template: Path | None = None,
 ) -> LaunchedBrowser:
-    """Spawn Chrome with remote debugging and return its DevTools websocket URL."""
+    """Spawn Chrome with remote debugging and return its DevTools websocket URL.
+
+    ``cache_template`` is an optional path to a snapshot produced by
+    :func:`funbrowser.cache.save_template`. When given, the snapshot's
+    cache subdirs are copied into ``user_data_dir`` **before** Chrome
+    starts (Chrome locks the cache files exclusively at launch, so the
+    copy must happen first).
+    """
     exe = executable or find_chrome()
     if exe is None or not exe.is_file():
         raise BrowserNotFoundError(
@@ -117,6 +125,11 @@ async def launch_chrome(
     else:
         user_data_dir = Path(user_data_dir)
         user_data_dir.mkdir(parents=True, exist_ok=True)
+
+    if cache_template is not None:
+        from .cache import apply_template
+
+        apply_template(cache_template, user_data_dir)
 
     args = [str(exe), *_base_args(user_data_dir, headless, port), *extra_args]
 

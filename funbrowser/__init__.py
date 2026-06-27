@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from . import cache as cache_mod
 from . import helpers as helpers_mod
 from . import humanly as humanly_mod
 from . import mail as mail_mod
@@ -40,12 +41,13 @@ from .proxy import parse as parse_proxy
 from .solver import FunSolverClient, FunSolverError
 from .tab import Request, Response, Route, Tab
 
+cache = cache_mod
 helpers = helpers_mod
 humanly = humanly_mod
 mail = mail_mod
 tls = tls_mod
 
-__version__ = "0.1.26"
+__version__ = "0.1.27"
 
 __all__ = [
     "Browser",
@@ -75,6 +77,7 @@ __all__ = [
     "Tab",
     "TargetClosed",
     "__version__",
+    "cache",
     "helpers",
     "humanly",
     "lookup_proxy_geo",
@@ -146,6 +149,7 @@ def start(
     humanly: bool | HumanBehavior = False,
     mini: bool = False,
     nano: bool = False,
+    cache_template: str | Path | None = None,
     api_key: str | None = None,
     auto_solve: bool = True,
     solver_base_url: str | None = None,
@@ -189,6 +193,7 @@ def start(
         humanly=humanly,
         mini=mini,
         nano=nano,
+        cache_template=cache_template,
         api_key=api_key,
         auto_solve=auto_solve,
         solver_base_url=solver_base_url,
